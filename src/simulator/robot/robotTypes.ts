@@ -28,8 +28,8 @@ export const ROBOT_HALF = 7    // half-width/height for boundary math
 export const FIELD_HALF = 72   // field interior spans −72..+72 in both axes
 
 // Physics constants
-export const MOVE_SPEED = 50   // inches per second (≈ 2 ft/s, ≈ 3s to cross the field)
-export const TURN_RATE  = 200  // degrees per second (full rotation ≈ 1.8s)
+export const MOVE_SPEED = 65   // inches per second (≈ 2 ft/s, ≈ 3s to cross the field)
+export const TURN_RATE  = 200  // degrees per second (full rotation ≈ 1.2s)
 
 // Debug threshold — "near wall" warning when center is within this distance
 // of the clamped boundary (FIELD_HALF − ROBOT_HALF)

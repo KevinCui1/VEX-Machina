@@ -73,7 +73,10 @@ export interface UsePhysicsResult {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function usePhysics(): UsePhysicsResult {
+export function usePhysics(intakeCapacity = INTAKE_CAPACITY): UsePhysicsResult {
+  // Keep capacity accessible inside the rAF loop without recreating the loop.
+  const capacityRef = useRef(intakeCapacity)
+  useEffect(() => { capacityRef.current = intakeCapacity }, [intakeCapacity])
   // ── Physics refs (mutated every frame, never trigger re-renders) ──────────
   const robotRef   = useRef<RobotState>({ ...DEFAULT_ROBOT })
   const blocksRef  = useRef<PhysicsBlock[]>(makeTestBlocks())
@@ -234,10 +237,10 @@ export function usePhysics(): UsePhysicsResult {
       // ── 2. Intake: check for blocks in the pickup zone ──────────────────
       const intakeActive = keys.has(' ') || mouseDownRef.current
 
-      if (intakeActive && heldIdsRef.current.length < INTAKE_CAPACITY) {
+      if (intakeActive && heldIdsRef.current.length < capacityRef.current) {
         for (const b of blocksRef.current) {
           if (b.state !== 'field') continue
-          if (heldIdsRef.current.length >= INTAKE_CAPACITY) break
+          if (heldIdsRef.current.length >= capacityRef.current) break
 
           // Transform block to robot-local frame (front = +localX, left = +localY).
           const wx = b.x - rob.x

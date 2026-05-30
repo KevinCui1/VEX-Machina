@@ -6,11 +6,15 @@ import { TEST_BLOCK_COUNT } from './physics/testLayout'
 import { FIELD_HALF, INTAKE_CAPACITY, NEAR_WALL_DIST, ROBOT_HALF } from './robot/robotTypes'
 import './FieldSimulator.css'
 
-export default function FieldSimulator() {
-  const [showDebug, setShowDebug]   = useState(false)
-  const [showLabels, setShowLabels] = useState(true)
+const CAPACITY_MIN = 3
+const CAPACITY_MAX = 9
 
-  const { robot, physicsBlocks, resetScene, heldKeys, intakeActive, heldIds } = usePhysics()
+export default function FieldSimulator() {
+  const [showDebug, setShowDebug]     = useState(false)
+  const [showLabels, setShowLabels]   = useState(true)
+  const [capacity, setCapacity]       = useState(INTAKE_CAPACITY)
+
+  const { robot, physicsBlocks, resetScene, heldKeys, intakeActive, heldIds } = usePhysics(capacity)
 
   const wallBound = FIELD_HALF - ROBOT_HALF
   const nearWall  =
@@ -27,6 +31,19 @@ export default function FieldSimulator() {
         <span className="fs-wordmark">VEX Machina</span>
         <span className="fs-badge">Push Back · 2025–2026 V5RC</span>
         <div className="fs-controls">
+          <label className="fs-capacity-control">
+            <span className="fs-capacity-label">Capacity</span>
+            <input
+              type="range"
+              min={CAPACITY_MIN}
+              max={CAPACITY_MAX}
+              step={1}
+              value={capacity}
+              onChange={(e) => setCapacity(Number(e.target.value))}
+              className="fs-capacity-slider"
+            />
+            <span className="fs-capacity-val">{capacity}</span>
+          </label>
           <button
             type="button"
             className={`fs-toggle ${showLabels ? 'is-on' : ''}`}
@@ -105,7 +122,7 @@ export default function FieldSimulator() {
               <div className="fs-robot-stat">
                 <span className="fs-robot-key">HELD</span>
                 <span className={`fs-robot-val ${heldIds.length > 0 ? 'fs-robot-active' : ''}`}>
-                  {heldIds.length}&thinsp;/&thinsp;{INTAKE_CAPACITY}
+                  {heldIds.length}&thinsp;/&thinsp;{capacity}
                 </span>
               </div>
               {heldIds.length > 0 && (
