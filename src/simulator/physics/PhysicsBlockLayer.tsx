@@ -41,10 +41,12 @@ export default function PhysicsBlockLayer({ blocks, showDebug }: PhysicsBlockLay
   return (
     <g className="pbl-layer" pointerEvents="none">
       {blocks.map((b) => {
+        if (b.state === 'held') return null
+
         const c        = toSvg({ x: b.x, y: b.y })
         const speed    = Math.hypot(b.vx, b.vy)
         const isMoving = speed > 0.25
-        const isHeld   = b.state === 'held'
+        const isHeld   = false
 
         return (
           <Fragment key={b.id}>

@@ -25,13 +25,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   DEFAULT_ROBOT,
   FIELD_HALF,
-  HELD_SLOTS,
   INTAKE_CAPACITY,
   INTAKE_FRONT_OFFSET,
   INTAKE_HALF_H,
   MOVE_SPEED,
   RAKE_REACH,
-  RELEASE_SLOTS,
   ROBOT_HALF,
   ROBOT_W,
   TURN_RATE,
@@ -57,8 +55,13 @@ const ITERS = 3
 // Robot half-width used for intake zone check (matches collision.ts RHW).
 const RHW = ROBOT_W / 2   // 7"
 
-// Field interior limit for clamping held-block positions.
+// Field interior limit for clamping released-block positions.
 const FIELD_INNER = FIELD_HALF - BLOCK_RADIUS
+
+// Held-block interior physics constants.
+const HELD_FRICTION     = 150   // inches / sec² — higher than field friction
+const HELD_RESTITUTION  = 0.50  // energy kept after each wall bounce
+const HELD_LIMIT        = ROBOT_HALF - BLOCK_RADIUS  // ≈ 5.25" from robot center
 
 // ─── Public interface ────────────────────────────────────────────────────────
 
@@ -73,19 +76,31 @@ export interface UsePhysicsResult {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function usePhysics(intakeCapacity = INTAKE_CAPACITY): UsePhysicsResult {
-  // Keep capacity accessible inside the rAF loop without recreating the loop.
-  const capacityRef = useRef(intakeCapacity)
-  useEffect(() => { capacityRef.current = intakeCapacity }, [intakeCapacity])
+export function usePhysics(
+  intakeCapacity = INTAKE_CAPACITY,
+  moveSpeed      = MOVE_SPEED,
+  turnRate       = TURN_RATE,
+): UsePhysicsResult {
+  // Keep hot-configurable values accessible inside the rAF loop without recreating the loop.
+  const capacityRef  = useRef(intakeCapacity)
+  const moveSpeedRef = useRef(moveSpeed)
+  const turnRateRef  = useRef(turnRate)
+  useEffect(() => { capacityRef.current  = intakeCapacity }, [intakeCapacity])
+  useEffect(() => { moveSpeedRef.current = moveSpeed      }, [moveSpeed])
+  useEffect(() => { turnRateRef.current  = turnRate       }, [turnRate])
   // ── Physics refs (mutated every frame, never trigger re-renders) ──────────
   const robotRef   = useRef<RobotState>({ ...DEFAULT_ROBOT })
   const blocksRef  = useRef<PhysicsBlock[]>(makeTestBlocks())
   const keysRef    = useRef<Set<string>>(new Set())
 
   // ── Intake refs ───────────────────────────────────────────────────────────
-  const heldIdsRef     = useRef<string[]>([])
-  const mouseDownRef   = useRef(false)
-  const xHandledRef    = useRef(false)   // prevents X from repeating while held
+  const heldIdsRef          = useRef<string[]>([])
+  const mouseDownRef        = useRef(false)
+  const lastOuttakeTimeRef  = useRef<number>(Number.NEGATIVE_INFINITY)
+
+  // ── Previous robot velocity — used to compute inertial delta for held blocks
+  const prevRobotVxRef = useRef(0)
+  const prevRobotVyRef = useRef(0)
 
   // ── React state — written by rAF loop, read by renderer ───────────────────
   const [renderState, setRenderState] = useState<{
@@ -101,36 +116,12 @@ export function usePhysics(intakeCapacity = INTAKE_CAPACITY): UsePhysicsResult {
   }))
   const [heldKeys, setHeldKeys] = useState<ReadonlySet<string>>(new Set())
 
-  // ── Release all held blocks ───────────────────────────────────────────────
-  // Places blocks in front of the robot at release-slot positions with a
-  // small forward velocity so they clear the intake zone immediately.
-  const releaseHeldBlocks = useCallback(() => {
-    if (heldIdsRef.current.length === 0) return
-    const rob = robotRef.current
-    const rad  = (rob.heading * Math.PI) / 180
-    const cosH = Math.cos(rad)
-    const sinH = Math.sin(rad)
-
-    heldIdsRef.current.forEach((id, i) => {
-      const b = blocksRef.current.find(bl => bl.id === id)
-      if (!b) return
-      const slot = RELEASE_SLOTS[i] ?? RELEASE_SLOTS[0]
-      b.x = Math.max(-FIELD_INNER, Math.min(FIELD_INNER,
-        rob.x + slot.lx * cosH - slot.ly * sinH))
-      b.y = Math.max(-FIELD_INNER, Math.min(FIELD_INNER,
-        rob.y + slot.lx * sinH + slot.ly * cosH))
-      // Small forward push so blocks clear the intake zone in ~0.3 s.
-      b.vx = cosH * 22
-      b.vy = sinH * 22
-      b.state = 'field'
-    })
-    heldIdsRef.current = []
-  }, [])
+  // (outtake is handled sequentially inside the physics loop)
 
   // ── Scene reset ───────────────────────────────────────────────────────────
   const resetScene = useCallback(() => {
     heldIdsRef.current = []
-    xHandledRef.current = false
+    lastOuttakeTimeRef.current = Number.NEGATIVE_INFINITY
     const freshRobot  = { ...DEFAULT_ROBOT }
     const freshBlocks = makeTestBlocks()
     robotRef.current  = freshRobot
@@ -156,15 +147,6 @@ export function usePhysics(intakeCapacity = INTAKE_CAPACITY): UsePhysicsResult {
         e.preventDefault()
       }
 
-      // X key: release held blocks (single trigger per press).
-      if (key === 'x') {
-        if (!xHandledRef.current) {
-          xHandledRef.current = true
-          releaseHeldBlocks()
-        }
-        return
-      }
-
       if (!keysRef.current.has(key)) {
         keysRef.current.add(key)
         setHeldKeys(new Set(keysRef.current))
@@ -173,7 +155,8 @@ export function usePhysics(intakeCapacity = INTAKE_CAPACITY): UsePhysicsResult {
 
     function up(e: KeyboardEvent) {
       const key = e.key === ' ' ? ' ' : e.key.toLowerCase()
-      if (key === 'x') { xHandledRef.current = false; return }
+      // Reset outtake timer on X release so next press fires immediately.
+      if (key === 'x') lastOuttakeTimeRef.current = Number.NEGATIVE_INFINITY
       if (keysRef.current.delete(key)) setHeldKeys(new Set(keysRef.current))
     }
 
@@ -183,7 +166,7 @@ export function usePhysics(intakeCapacity = INTAKE_CAPACITY): UsePhysicsResult {
       document.removeEventListener('keydown', down)
       document.removeEventListener('keyup', up)
     }
-  }, [resetScene, releaseHeldBlocks])
+  }, [resetScene])
 
   // ── Mouse listeners (left-click activates intake) ─────────────────────────
   useEffect(() => {
@@ -222,17 +205,43 @@ export function usePhysics(intakeCapacity = INTAKE_CAPACITY): UsePhysicsResult {
                  - (keys.has('d') || keys.has('arrowright') ? 1 : 0)
 
       const r      = robotRef.current
-      const newHdg = r.heading + turn * TURN_RATE * dt
+      const newHdg = r.heading + turn * turnRateRef.current * dt
       const rad    = (newHdg * Math.PI) / 180
       const cosH   = Math.cos(rad)
       const sinH   = Math.sin(rad)
-      const robotVx = fwd * MOVE_SPEED * cosH
-      const robotVy = fwd * MOVE_SPEED * sinH
+      const robotVx = fwd * moveSpeedRef.current * cosH
+      const robotVy = fwd * moveSpeedRef.current * sinH
+
+      // Compute velocity delta (used for held-block inertia, see step 3).
+      const dvx = robotVx - prevRobotVxRef.current
+      const dvy = robotVy - prevRobotVyRef.current
+      prevRobotVxRef.current = robotVx
+      prevRobotVyRef.current = robotVy
+
       const newX = Math.max(-BOUND, Math.min(BOUND, r.x + robotVx * dt))
       const newY = Math.max(-BOUND, Math.min(BOUND, r.y + robotVy * dt))
       robotRef.current = { ...r, x: newX, y: newY, heading: newHdg }
 
       const rob = robotRef.current
+
+      // ── 2a. Sequential outtake (X key) — one block per 0.5 s ───────────
+      if (keys.has('x') && heldIdsRef.current.length > 0) {
+        if (now - lastOuttakeTimeRef.current >= 100) {
+          lastOuttakeTimeRef.current = now
+          const id = heldIdsRef.current[0]
+          const ob = blocksRef.current.find(bl => bl.id === id)
+          if (ob) {
+            // Fixed center outtake point: just past the front face, no lateral offset.
+            const OUTTAKE_LX = RHW + 2.0
+            ob.x = Math.max(-FIELD_INNER, Math.min(FIELD_INNER, rob.x + OUTTAKE_LX * cosH))
+            ob.y = Math.max(-FIELD_INNER, Math.min(FIELD_INNER, rob.y + OUTTAKE_LX * sinH))
+            ob.vx = cosH * 18
+            ob.vy = sinH * 18
+            ob.state = 'field'
+          }
+          heldIdsRef.current = heldIdsRef.current.slice(1)
+        }
+      }
 
       // ── 2. Intake: check for blocks in the pickup zone ──────────────────
       const intakeActive = keys.has(' ') || mouseDownRef.current
@@ -255,29 +264,85 @@ export function usePhysics(intakeCapacity = INTAKE_CAPACITY): UsePhysicsResult {
 
           if (inZoneX && inZoneY) {
             b.state = 'held'
-            b.vx = 0
-            b.vy = 0
             heldIdsRef.current = [...heldIdsRef.current, b.id]
           }
         }
       }
 
-      // ── 3. Position held blocks at their slot locations ─────────────────
-      // Held blocks track the robot each frame so they move with it while
-      // keeping their physics velocity zeroed to prevent jitter.
-      for (let i = 0; i < heldIdsRef.current.length; i++) {
-        const id = heldIdsRef.current[i]
-        const b  = blocksRef.current.find(bl => bl.id === id)
-        if (!b) continue
+      // ── 3. Held block physics — bounce inside robot box ─────────────────
+      // Each held block is carried with the robot's translation and rotation,
+      // has its own velocity integrated with high friction, and is resolved
+      // against the robot's interior walls instead of the field walls.
+      const dTx  = rob.x - r.x
+      const dTy  = rob.y - r.y
+      const dRad = ((rob.heading - r.heading) * Math.PI) / 180
+      const cosD = Math.cos(dRad), sinD = Math.sin(dRad)
 
-        const slot = HELD_SLOTS[i]
-        b.x = Math.max(-FIELD_INNER, Math.min(FIELD_INNER,
-          rob.x + slot.lx * cosH - slot.ly * sinH))
-        b.y = Math.max(-FIELD_INNER, Math.min(FIELD_INNER,
-          rob.y + slot.lx * sinH + slot.ly * cosH))
-        b.vx = 0
-        b.vy = 0
+      // Helper: clamp one block to robot interior in local frame.
+      function clampToRobot(b: PhysicsBlock) {
+        let lx  =  (b.x - rob.x) * cosH + (b.y - rob.y) * sinH
+        let ly  = -(b.x - rob.x) * sinH + (b.y - rob.y) * cosH
+        let vlx =  b.vx * cosH + b.vy * sinH
+        let vly = -b.vx * sinH + b.vy * cosH
+        if (lx >  HELD_LIMIT) { lx =  HELD_LIMIT; vlx = -Math.abs(vlx) * HELD_RESTITUTION }
+        if (lx < -HELD_LIMIT) { lx = -HELD_LIMIT; vlx =  Math.abs(vlx) * HELD_RESTITUTION }
+        if (ly >  HELD_LIMIT) { ly =  HELD_LIMIT; vly = -Math.abs(vly) * HELD_RESTITUTION }
+        if (ly < -HELD_LIMIT) { ly = -HELD_LIMIT; vly =  Math.abs(vly) * HELD_RESTITUTION }
+        b.x  = rob.x + lx * cosH - ly * sinH
+        b.y  = rob.y + lx * sinH + ly * cosH
+        b.vx =  vlx * cosH - vly * sinH
+        b.vy =  vlx * sinH + vly * cosH
+      }
+
+      const heldBlocks: PhysicsBlock[] = []
+      for (const id of heldIdsRef.current) {
+        const b = blocksRef.current.find(bl => bl.id === id)
+        if (!b) continue
+        heldBlocks.push(b)
+
+        // Inertial impulse: robot velocity change is felt as opposite kick on
+        // held blocks, causing them to slosh backward on acceleration, forward
+        // on braking, and sideways on turns. Factor < 1 so it doesn't overpower
+        // the friction that settles them.
+        const INERTIA = 0.55
+        b.vx -= dvx * INERTIA
+        b.vy -= dvy * INERTIA
+
+        // Carry with robot translation
+        b.x += dTx; b.y += dTy
+
+        // Carry with robot rotation around its center
+        const dx = b.x - rob.x, dy = b.y - rob.y
+        b.x = rob.x + dx * cosD - dy * sinD
+        b.y = rob.y + dx * sinD + dy * cosD
+        const nvx = b.vx * cosD - b.vy * sinD
+        const nvy = b.vx * sinD + b.vy * cosD
+        b.vx = nvx; b.vy = nvy
+
+        // Integrate velocity
+        b.x += b.vx * dt; b.y += b.vy * dt
+
+        // Friction (higher than field blocks for quicker settling)
+        const spd = Math.hypot(b.vx, b.vy)
+        if (spd > REST_SPEED) {
+          const factor = Math.max(0, (spd - HELD_FRICTION * dt) / spd)
+          b.vx *= factor; b.vy *= factor
+        } else {
+          b.vx = 0; b.vy = 0
+        }
+
+        clampToRobot(b)
         b.state = 'held'
+      }
+
+      // Block-block collisions among held blocks, then re-clamp to walls.
+      for (let iter = 0; iter < 2; iter++) {
+        for (let i = 0; i < heldBlocks.length - 1; i++) {
+          for (let j = i + 1; j < heldBlocks.length; j++) {
+            resolveBlockBlock(heldBlocks[i], heldBlocks[j])
+          }
+        }
+        for (const b of heldBlocks) clampToRobot(b)
       }
 
       // ── 4. Integrate velocities + friction (field blocks only) ───────────

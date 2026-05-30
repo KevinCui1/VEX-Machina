@@ -7,39 +7,35 @@
   width: 100%;
   height: 100%;
   display: block;
-  /* slight drop so the field "floats" on the dark UI */
-  filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.55));
+  filter: drop-shadow(0 4px 16px rgba(0, 0, 0, 0.22));
 }
 
 .fv-backdrop {
-  fill: #0c0f14;
+  fill: transparent;
 }
 
 /* ── Perimeter ───────────────────────────────────────────────────────────── */
 .fv-perimeter-inner {
   fill: none;
-  stroke: #20242b;
-  stroke-width: 0.6;
+  stroke: none;
 }
 
 /* ── Foam floor ──────────────────────────────────────────────────────────── */
 .fv-seam {
-  stroke: #3d434c;
+  stroke: #72777f;
   stroke-width: 0.35;
 }
 
 /* ── Coordinate grid labels ──────────────────────────────────────────────── */
 .fv-grid-tick {
-  stroke: rgba(160, 175, 195, 0.5);
+  stroke: rgba(100, 120, 150, 0.45);
   stroke-width: 0.35;
 }
 .fv-grid-label {
-  fill: rgba(175, 192, 210, 0.8);
+  fill: rgba(60, 80, 115, 0.95);
   font-family: 'Courier New', Courier, monospace;
   font-size: 3px;
-  paint-order: stroke;
-  stroke: rgba(8, 10, 14, 0.9);
-  stroke-width: 0.8;
+  font-weight: 700;
 }
 
 /* ── Alliance stations ───────────────────────────────────────────────────── */
@@ -83,44 +79,44 @@
 
 /* ── Tape lines (autonomous line) ────────────────────────────────────────── */
 .fv-tape-line {
-  stroke: rgba(236, 240, 245, 0.55);
-  stroke-width: 0.7;
+  stroke: rgba(255, 255, 255, 0.90);
+  stroke-width: 1.0;
 }
 
-/* ── Goals (clear / translucent structures) ──────────────────────────────── */
+/* ── Goals (translucent tan/beige structures matching official field) ──────── */
 .fv-goal-glass {
   fill: url(#glass);
 }
 .fv-goal-enclosed {
-  fill: rgba(180, 210, 235, 0.28);
+  fill: rgba(195, 165, 110, 0.40);
 }
 .fv-goal-outline {
   fill: none;
-  stroke: rgba(206, 230, 248, 0.7);
+  stroke: rgba(185, 155, 100, 0.85);
   stroke-width: 0.5;
 }
 .fv-goal-divider {
-  stroke: rgba(206, 230, 248, 0.55);
+  stroke: rgba(185, 155, 100, 0.65);
   stroke-width: 0.4;
   stroke-dasharray: 1.2 1.2;
 }
 
-/* ── Loaders (distinct amber field-side structures) ──────────────────────── */
+/* ── Loaders (field-side structures with alliance coloring) ──────────────── */
 .fv-loader-body {
-  fill: rgba(214, 150, 70, 0.28);
-  stroke: rgba(230, 170, 90, 0.8);
+  fill: rgba(195, 165, 110, 0.45);
+  stroke: rgba(185, 155, 100, 0.90);
   stroke-width: 0.5;
 }
 .fv-loader-mouth {
-  fill: rgba(18, 21, 26, 0.85);
-  stroke: rgba(230, 170, 90, 0.9);
+  fill: rgba(40, 40, 40, 0.80);
+  stroke: rgba(185, 155, 100, 0.90);
   stroke-width: 0.4;
 }
 .fv-loader.fv-red .fv-loader-mouth {
-  stroke: rgba(225, 90, 90, 0.95);
+  stroke: rgba(220, 70, 70, 0.95);
 }
 .fv-loader.fv-blue .fv-loader-mouth {
-  stroke: rgba(95, 150, 230, 0.95);
+  stroke: rgba(70, 130, 220, 0.95);
 }
 
 /* ── Element labels ──────────────────────────────────────────────────────── */

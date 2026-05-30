@@ -11,20 +11,20 @@ const T_HOLD_END     = 4200
 const T_DISSOLVE_END = 6000
 
 // ─── Colors ──────────────────────────────────────────────────────────────────
-const COL_BG         = '#090b0f'
-const RAINBOW_SPARKS = ['#ff4444','#ff9020','#ffe030','#44ee44','#30d0ff','#8844ff','#ff44cc']
-const COL_CAPTION    = 'rgba(90,180,216,0.7)'
-const COL_GRID_MAJOR = 'rgba(79,195,247,0.03)'
-const COL_GRID_MINOR = 'rgba(79,195,247,0.015)'
+const COL_BG         = '#EAEBEE'
+const RAINBOW_SPARKS = ['#ff4444','#ff9020','#d4a010','#22a040','#1878c8','#7040c0','#c03888']
+const COL_CAPTION    = 'rgba(23,24,31,0.45)'
+const COL_GRID_MAJOR = 'rgba(196,30,58,0.07)'
+const COL_GRID_MINOR = 'rgba(196,30,58,0.03)'
 
 // Per-part color palettes: [fill, stroke, accent]
 const PART_PALETTES: [string, string, string][] = [
-  ['#1c3a58', '#5ab4d8', '#7dd4f0'],   // steel blue
-  ['#3b1a10', '#c0622a', '#f08040'],   // burnt orange / rust
-  ['#1a2e1a', '#4caf50', '#80e080'],   // circuit green
-  ['#2e2010', '#b8922a', '#e8c060'],   // brass / gold
-  ['#2a1a38', '#9060c8', '#c090f8'],   // anodized purple
-  ['#1e1e1e', '#888888', '#cccccc'],   // bare steel / silver
+  ['#ddf0fa', '#0878b8', '#40b8e8'],   // steel blue
+  ['#faeee6', '#c83800', '#f06020'],   // burnt orange / rust
+  ['#e4f7e4', '#149814', '#40cc40'],   // circuit green
+  ['#faf4d8', '#b87000', '#e8a800'],   // brass / gold
+  ['#ede8fc', '#6018c8', '#9848f0'],   // anodized purple
+  ['#eeeeee', '#484848', '#888888'],   // bare steel / silver
 ]
 
 // ─── Part types ───────────────────────────────────────────────────────────────
@@ -145,7 +145,7 @@ function drawPart(ctx: CanvasRenderingContext2D, p: Part, fade = 1) {
   ctx.globalAlpha = p.opacity * fade
   ctx.fillStyle = fill
   ctx.strokeStyle = stroke
-  ctx.lineWidth = 1.4
+  ctx.lineWidth = 1.8
   ctx.lineCap = 'butt'
 
   switch (p.type) {
@@ -311,8 +311,8 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
 
       // vignette
       const vg = ctx.createRadialGradient(W2/2, H2/2, H2*0.15, W2/2, H2/2, H2*0.8)
-      vg.addColorStop(0, 'rgba(0,0,0,0)')
-      vg.addColorStop(1, 'rgba(0,0,0,0.7)')
+      vg.addColorStop(0, 'rgba(234,235,238,0)')
+      vg.addColorStop(1, 'rgba(234,235,238,0.55)')
       ctx.fillStyle = vg; ctx.fillRect(0, 0, W2, H2)
 
       // ── phase logic ────────────────────────────────────────────────────
@@ -373,12 +373,12 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
         ctx.save()
         ctx.globalAlpha = outlineOpacity
         const grad = ctx.createLinearGradient(W2 * 0.1, 0, W2 * 0.9, 0)
-        grad.addColorStop(0,    '#f08040')
-        grad.addColorStop(0.2,  '#5ab4d8')
-        grad.addColorStop(0.4,  '#4caf50')
-        grad.addColorStop(0.6,  '#e8c040')
-        grad.addColorStop(0.8,  '#c090f8')
-        grad.addColorStop(1,    '#cccccc')
+        grad.addColorStop(0,    '#c83800')
+        grad.addColorStop(0.2,  '#0878b8')
+        grad.addColorStop(0.4,  '#149814')
+        grad.addColorStop(0.6,  '#b87000')
+        grad.addColorStop(0.8,  '#6018c8')
+        grad.addColorStop(1,    '#484848')
         ctx.strokeStyle = grad
         ctx.lineWidth = 5.5
         ctx.lineJoin = 'round'

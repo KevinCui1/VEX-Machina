@@ -12,13 +12,13 @@
 //   │          ║ ║ intake    │      ║
 //   │          ╚═╝ bar       │ ══════╣
 //   └───────────────────────┤ ══════╝
-//              ▶ heading arrow
 //
-// Rake elements (only when intakeActive):
-//   - back bar (at front face)
-//   - 3 tines extending forward
-//   - front tip bar
-//   - glow area behind rake
+// Rake states:
+//   raised  (always shown when !intakeActive) — compact tines at front face
+//   extended (intakeActive) — full tines forward with glow
+//
+// Held blocks are drawn at their actual physics positions in the robot-local
+// frame (lx = forward, ly = robot-left). svgX = lx, svgY = -ly.
 //
 // Debug overlay (when showDebug):
 //   - dashed bounding box
@@ -40,12 +40,19 @@ import {
 import { BLOCK_RADIUS } from '../physics/physicsTypes'
 import './RobotLayer.css'
 
+export interface HeldBlock {
+  color: 'red' | 'blue'
+  /** Robot-local forward component (+ = toward front face). */
+  lx: number
+  /** Robot-local lateral component (+ = robot-left, − = robot-right). */
+  ly: number
+}
+
 interface RobotLayerProps {
   robot: RobotState
   showDebug: boolean
   intakeActive: boolean
-  heldCount: number
-  heldColors: ('red' | 'blue')[]
+  heldBlocks: HeldBlock[]
 }
 
 const HW = ROBOT_W / 2   // 7" half-width  (left/right in local SVG frame)
@@ -54,6 +61,15 @@ const HH = ROBOT_H / 2   // 7" half-height (front/back — robot front = +svgX)
 // Rake tine Y positions in local SVG frame (+ = robot's right = field -Y after heading).
 // Three tines: outer two span the Blocks; center one guides the middle.
 const TINE_Y = [-3.5, 0, 3.5] as const
+
+// Octagon at full block size — matches PhysicsBlockLayer exactly.
+const OCTAGON_POINTS = Array.from({ length: 8 }, (_, k) => {
+  const theta = Math.PI / 8 + k * (Math.PI / 4)
+  return `${(BLOCK_RADIUS * Math.cos(theta)).toFixed(4)},${(BLOCK_RADIUS * Math.sin(theta)).toFixed(4)}`
+}).join(' ')
+
+const INNER_SCALE = 0.62  // same bevel ratio as PhysicsBlockLayer
+
 const TINE_HALF_THICK = 0.45
 
 // Debug intake zone dimensions (local SVG frame, front = +svgX).
@@ -65,9 +81,9 @@ export default function RobotLayer({
   robot,
   showDebug,
   intakeActive,
-  heldCount,
-  heldColors,
+  heldBlocks,
 }: RobotLayerProps) {
+  const heldCount = heldBlocks.length
   const svgPos = toSvg({ x: robot.x, y: robot.y })
   const svgRot = toSvgRotation(robot.heading)
   const alliance = robot.alliance
@@ -87,7 +103,7 @@ export default function RobotLayer({
           />
         )}
 
-        {/* ── Rake — extends in front when intakeActive ──────────────────── */}
+        {/* ── Extended rake — full tines forward when intakeActive ───────── */}
         {intakeActive && (
           <g className={`rl-rake rl-rake-${alliance}`}>
             {/* Glow area */}
@@ -152,31 +168,30 @@ export default function RobotLayer({
           className={`rl-body rl-${alliance}`}
         />
 
-        {/* ── Interior detail — wheel wells / structural lines ─────────── */}
-        <rect x={-HW + 1.5} y={-HH + 1.5} width={4}  height={ROBOT_H - 3} rx={0.8} className="rl-wheel" />
-        <rect x={ HW - 5.5} y={-HH + 1.5} width={4}  height={ROBOT_H - 3} rx={0.8} className="rl-wheel" />
-
-        {/* ── Intake housing on the front face (+svgX edge) ─────────────── */}
-        <rect
-          x={HW - 3.5}
-          y={-HH + 2.5}
-          width={3.5}
-          height={ROBOT_H - 5}
-          rx={0.6}
-          className={`rl-intake rl-${alliance} ${intakeActive ? 'rl-intake-active' : ''}`}
-        />
-
-        {/* ── Held block indicators (small swatches near the intake bar) ─── */}
-        {heldColors.map((c, i) => (
-          <rect
-            key={i}
-            x={HW - 5.8}
-            y={-HH + 2.5 + i * 3.0}
-            width={2.0}
-            height={2.0}
-            rx={0.4}
-            className={`rl-held-swatch rl-held-${c}`}
-          />
+        {/* ── Held block indicators — full-size blocks at physics positions ─── */}
+        {/* lx = robot-local forward (+svgX), ly = robot-local left (svgY = -ly) */}
+        {heldBlocks.map((b, i) => (
+          <g key={i} transform={`translate(${b.lx.toFixed(3)} ${(-b.ly).toFixed(3)})`}>
+            {/* Drop shadow */}
+            <polygon
+              points={OCTAGON_POINTS}
+              transform="translate(0.15 0.2)"
+              className="rl-held-shadow"
+            />
+            {/* Main body */}
+            <polygon
+              points={OCTAGON_POINTS}
+              className={`rl-held-block rl-held-${b.color}`}
+            />
+            {/* Inner bevel */}
+            <polygon
+              points={OCTAGON_POINTS}
+              transform={`scale(${INNER_SCALE})`}
+              className={`rl-held-inner rl-held-${b.color}`}
+            />
+            {/* Center dot */}
+            <circle cx={0} cy={0} r={0.28} className="rl-held-dot" />
+          </g>
         ))}
 
         {/* ── Alliance-color outline / glow ─────────────────────────────── */}
@@ -189,11 +204,17 @@ export default function RobotLayer({
           className={`rl-outline rl-${alliance}`}
         />
 
-        {/* ── Heading chevron beyond the front face ─────────────────────── */}
-        <polygon
-          points={`${HW + 1},0 ${HW + 4.5},-2.2 ${HW + 4.5},2.2`}
-          className={`rl-arrow rl-${alliance}`}
-        />
+        {/* ── Raised rake — bumper rail on top of chassis (retracted) ────── */}
+        {!intakeActive && (
+          <rect
+            x={HW}
+            y={-RAKE_HEIGHT / 2}
+            width={1.2}
+            height={RAKE_HEIGHT}
+            rx={0.3}
+            className="rl-rake-raised-bar"
+          />
+        )}
 
         {/* ── Debug overlay ─────────────────────────────────────────────── */}
         {showDebug && (

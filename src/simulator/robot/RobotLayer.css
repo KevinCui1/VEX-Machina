@@ -10,54 +10,25 @@
 
 /* ── Chassis body ──────────────────────────────────────────────────────────── */
 .rl-body {
-  fill: #1a1e26;
+  fill: #b8bcc6;
 }
-.rl-body.rl-red  { fill: #1e1518; }
-.rl-body.rl-blue { fill: #141520; }
+.rl-body.rl-red  { fill: #b8bcc6; }
+.rl-body.rl-blue { fill: #b8bcc6; }
 
-/* ── Wheel/structural inset rectangles ─────────────────────────────────────── */
-.rl-wheel {
-  fill: rgba(40, 44, 52, 0.9);
-  stroke: rgba(80, 88, 100, 0.6);
-  stroke-width: 0.25;
+/* ── Held block visuals — matches PhysicsBlockLayer style exactly ─────────── */
+.rl-held-shadow {
+  fill: rgba(0, 0, 0, 0.30);
 }
 
-/* ── Intake housing ─────────────────────────────────────────────────────────── */
-.rl-intake {
-  fill: #2a2e38;
-}
-.rl-intake.rl-red {
-  fill: rgba(210, 60,  60,  0.80);
-  stroke: rgba(240, 80,  80,  0.55);
-  stroke-width: 0.3;
-}
-.rl-intake.rl-blue {
-  fill: rgba(60,  100, 210, 0.80);
-  stroke: rgba(80,  130, 245, 0.55);
-  stroke-width: 0.3;
-}
-/* Brighter fill when intake is actively engaged. */
-.rl-intake.rl-intake-active.rl-red {
-  fill: rgba(255, 70, 70, 0.95);
-  stroke: rgba(255, 120, 120, 0.9);
-  stroke-width: 0.5;
-  filter: drop-shadow(0 0 1.5px rgba(255, 80, 80, 0.8));
-}
-.rl-intake.rl-intake-active.rl-blue {
-  fill: rgba(70, 130, 255, 0.95);
-  stroke: rgba(100, 170, 255, 0.9);
-  stroke-width: 0.5;
-  filter: drop-shadow(0 0 1.5px rgba(80, 140, 255, 0.8));
-}
+.rl-held-block.rl-held-red  { fill: #e03030; }
+.rl-held-block.rl-held-blue { fill: #2460d0; }
 
-/* ── Held block swatches (small color indicators inside robot) ─────────────── */
-.rl-held-swatch {
-  opacity: 0.85;
-  stroke: rgba(255, 255, 255, 0.35);
-  stroke-width: 0.2;
+.rl-held-inner.rl-held-red  { fill: #f05a50; opacity: 0.70; }
+.rl-held-inner.rl-held-blue { fill: #4080f0; opacity: 0.70; }
+
+.rl-held-dot {
+  fill: rgba(255, 255, 255, 0.55);
 }
-.rl-held-red  { fill: #e83030; }
-.rl-held-blue { fill: #2460d0; }
 
 /* ── Rake group ─────────────────────────────────────────────────────────────── */
 
@@ -105,14 +76,27 @@
 .rl-outline.rl-red  { stroke: #e84040; }
 .rl-outline.rl-blue { stroke: #4080f8; }
 
-/* ── Heading arrow ──────────────────────────────────────────────────────────── */
-.rl-arrow {
-  fill: none;
-  stroke-width: 0.6;
-  stroke-linejoin: round;
+/* ── Raised (retracted/resting) rake ──────────────────────────────────────── */
+/* Back and front frame bars */
+.rl-rake-raised-bar {
+  fill: #6a7280;
+  stroke: rgba(180, 190, 200, 0.45);
+  stroke-width: 0.18;
 }
-.rl-arrow.rl-red  { fill: #e84040; stroke: rgba(255, 80, 80, 0.5); }
-.rl-arrow.rl-blue { fill: #4080f8; stroke: rgba(80, 140, 255, 0.5); }
+
+/* Short tine stubs — muted alliance color to show they're folded/raised */
+.rl-rake-raised-tine {
+  stroke-width: 0.2;
+  opacity: 0.72;
+}
+.rl-rake-raised-tine.rl-rake-raised-tine-red {
+  fill: #7a2020;
+  stroke: #aa4444;
+}
+.rl-rake-raised-tine.rl-rake-raised-tine-blue {
+  fill: #1a3880;
+  stroke: #3d5ecc;
+}
 
 /* ── Debug overlays ─────────────────────────────────────────────────────────── */
 .rl-debug-box {

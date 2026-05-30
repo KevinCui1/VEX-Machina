@@ -3,18 +3,26 @@ import FieldView from './FieldView'
 import { pushBackField } from './field/pushBackField'
 import { usePhysics } from './physics/usePhysics'
 import { TEST_BLOCK_COUNT } from './physics/testLayout'
-import { FIELD_HALF, INTAKE_CAPACITY, NEAR_WALL_DIST, ROBOT_HALF } from './robot/robotTypes'
+import { FIELD_HALF, INTAKE_CAPACITY, MOVE_SPEED, NEAR_WALL_DIST, ROBOT_HALF, TURN_RATE } from './robot/robotTypes'
 import './FieldSimulator.css'
 
 const CAPACITY_MIN = 3
 const CAPACITY_MAX = 9
+const SPEED_MIN    = 24   // in/s  (~2 ft/s, torque-heavy bot)
+const SPEED_MAX    = 96   // in/s  (~8 ft/s, all-out speed build)
+const SPEED_STEP   = 12
+const TURN_MIN     = 90   // °/s
+const TURN_MAX     = 360  // °/s
+const TURN_STEP    = 45
 
 export default function FieldSimulator() {
   const [showDebug, setShowDebug]   = useState(false)
   const [showLabels, setShowLabels] = useState(true)
-  const [capacity, setCapacity]     = useState(INTAKE_CAPACITY)
+  const [capacity,  setCapacity]  = useState<number>(() => loadInt('sim_capacity',  INTAKE_CAPACITY, CAPACITY_MIN, CAPACITY_MAX))
+  const [moveSpeed, setMoveSpeed] = useState<number>(() => loadInt('sim_moveSpeed', MOVE_SPEED,      SPEED_MIN,    SPEED_MAX))
+  const [turnRate,  setTurnRate]  = useState<number>(() => loadInt('sim_turnRate',  TURN_RATE,       TURN_MIN,     TURN_MAX))
 
-  const { robot, physicsBlocks, resetScene, heldKeys, intakeActive, heldIds } = usePhysics(capacity)
+  const { robot, physicsBlocks, resetScene, heldKeys, intakeActive, heldIds } = usePhysics(capacity, moveSpeed, turnRate)
 
   const wallBound = FIELD_HALF - ROBOT_HALF
   const nearWall  =
@@ -27,15 +35,7 @@ export default function FieldSimulator() {
   return (
     <div className="field-simulator">
       {/* Decorative background layer */}
-      <div className="fs-bg" aria-hidden="true">
-        <div className="fs-bg-corner fs-bg-corner-tl" />
-        <div className="fs-bg-corner fs-bg-corner-br" />
-        <div className="fs-bg-line fs-bg-line-1" />
-        <div className="fs-bg-line fs-bg-line-2" />
-        <div className="fs-bg-line fs-bg-line-3" />
-        <div className="fs-bg-line fs-bg-line-4" />
-        <div className="fs-bg-center-glow" />
-      </div>
+      <BgDecoration />
 
       {/* Header */}
       <header className="fs-header">
@@ -140,28 +140,29 @@ export default function FieldSimulator() {
               Robot Settings
             </h2>
 
-            <div className="fs-setting-item">
-              <label className="fs-setting-label">Intake Capacity</label>
-              <div className="fs-slider-row">
-                <input
-                  type="range"
-                  min={CAPACITY_MIN}
-                  max={CAPACITY_MAX}
-                  step={1}
-                  value={capacity}
-                  onChange={(e) => setCapacity(Number(e.target.value))}
-                  className="fs-slider"
-                />
-                <span className="fs-slider-val">{capacity}</span>
-              </div>
-              <div className="fs-slider-ticks">
-                {Array.from({ length: CAPACITY_MAX - CAPACITY_MIN + 1 }, (_, i) => (
-                  <span key={i} className={`fs-tick ${capacity === CAPACITY_MIN + i ? 'fs-tick-active' : ''}`}>
-                    {CAPACITY_MIN + i}
-                  </span>
-                ))}
-              </div>
-            </div>
+            <SliderSetting
+              label="Intake Capacity"
+              value={capacity}
+              min={CAPACITY_MIN} max={CAPACITY_MAX} step={1}
+              display={String(capacity)}
+              onChange={(v) => { setCapacity(v); saveSetting('sim_capacity', v) }}
+            />
+
+            <SliderSetting
+              label="Move Speed"
+              value={moveSpeed}
+              min={SPEED_MIN} max={SPEED_MAX} step={SPEED_STEP}
+              display={`${moveSpeed} in/s`}
+              onChange={(v) => { setMoveSpeed(v); saveSetting('sim_moveSpeed', v) }}
+            />
+
+            <SliderSetting
+              label="Turn Rate"
+              value={turnRate}
+              min={TURN_MIN} max={TURN_MAX} step={TURN_STEP}
+              display={`${turnRate}°/s`}
+              onChange={(v) => { setTurnRate(v); saveSetting('sim_turnRate', v) }}
+            />
 
             <div className="fs-setting-item">
               <span className="fs-setting-label">Alliance</span>
@@ -227,7 +228,53 @@ export default function FieldSimulator() {
   )
 }
 
+/* ── Helpers ─────────────────────────────────────────────────────────────── */
+
+function loadInt(key: string, fallback: number, min: number, max: number): number {
+  const saved  = localStorage.getItem(key)
+  const parsed = saved !== null ? parseInt(saved, 10) : NaN
+  return !isNaN(parsed) && parsed >= min && parsed <= max ? parsed : fallback
+}
+
+function saveSetting(key: string, value: number) {
+  localStorage.setItem(key, String(value))
+}
+
 /* ── Sub-components ──────────────────────────────────────────────────────── */
+
+function SliderSetting({
+  label, value, min, max, step, display, onChange,
+}: {
+  label: string; value: number; min: number; max: number
+  step: number; display: string; onChange: (v: number) => void
+}) {
+  const count = Math.round((max - min) / step) + 1
+  return (
+    <div className="fs-setting-item">
+      <label className="fs-setting-label">{label}</label>
+      <div className="fs-slider-row">
+        <input
+          type="range"
+          min={min} max={max} step={step}
+          value={value}
+          onChange={(e) => onChange(Number(e.target.value))}
+          className="fs-slider"
+        />
+        <span className="fs-slider-val">{display}</span>
+      </div>
+      <div className="fs-slider-ticks">
+        {Array.from({ length: count }, (_, i) => {
+          const tick = min + i * step
+          return (
+            <span key={tick} className={`fs-tick ${value === tick ? 'fs-tick-active' : ''}`}>
+              {tick}
+            </span>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
 
 function KeyPill({ label, active }: { label: string; active: boolean }) {
   return <span className={`fs-keypill ${active ? 'fs-keypill-on' : ''}`}>{label}</span>
@@ -285,5 +332,13 @@ function ToggleSwitch({
         <div className="fs-toggle-thumb" />
       </div>
     </button>
+  )
+}
+
+function BgDecoration() {
+  return (
+    <div className="fs-bg" aria-hidden="true">
+
+    </div>
   )
 }

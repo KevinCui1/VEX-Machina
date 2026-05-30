@@ -9,8 +9,8 @@
   --vex-red-mid:    rgba(196, 30, 58, 0.28);
 
   --bg:          #EAEBEE;
-  --bg-panel:    rgba(255, 255, 255, 0.94);
-  --bg-panel-2:  rgba(255, 255, 255, 0.75);
+  --bg-panel:    rgba(255, 255, 255, 0.76);
+  --bg-panel-2:  rgba(255, 255, 255, 0.60);
 
   --border:        rgba(0, 0, 0, 0.07);
   --border-accent: rgba(196, 30, 58, 0.20);
@@ -56,132 +56,57 @@
   isolation: isolate;
 }
 
-/* ── Animated background ───────────────────────────────────────────────────── */
+/* ── Background ────────────────────────────────────────────────────────────── */
 .fs-bg {
   position: absolute;
   inset: 0;
   pointer-events: none;
   z-index: 0;
-  overflow: hidden;
-}
-
-/* Subtle dot grid */
-.fs-bg::before {
-  content: '';
-  position: absolute;
-  inset: 0;
+  /* Red square grid drawn in CSS — no SVG needed, scales perfectly */
   background-image:
-    radial-gradient(circle, rgba(196, 30, 58, 0.12) 1px, transparent 1px);
-  background-size: 32px 32px;
-  opacity: 0.5;
+    linear-gradient(rgba(196, 30, 58, 0.22) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(196, 30, 58, 0.22) 1px, transparent 1px);
+  background-size: 64px 64px;
 }
 
-/* Diagonal red corner fills */
-.fs-bg-corner {
+/* ── Corner accent SVGs ─────────────────────────────────────────────────────── */
+.fs-bg-corner-svg {
   position: absolute;
-  width: 180px;
-  height: 180px;
-  opacity: 0.5;
+  pointer-events: none;
 }
-.fs-bg-corner-tl {
-  top: 0;
-  left: 0;
-  background: linear-gradient(135deg, var(--vex-red) 0%, transparent 70%);
-  clip-path: polygon(0 0, 100% 0, 0 100%);
-  opacity: 0.08;
-}
-.fs-bg-corner-br {
-  bottom: 0;
-  right: 0;
-  background: linear-gradient(315deg, var(--vex-red) 0%, transparent 70%);
-  clip-path: polygon(100% 100%, 0 100%, 100% 0);
-  opacity: 0.08;
+.fs-bg-corner-tl-svg { top: 0;    left: 0;  width: 240px; height: 240px; }
+.fs-bg-corner-br-svg { bottom: 0; right: 0; width: 240px; height: 240px; }
+
+/* ── Individually-positioned VEX part SVGs ─────────────────────────────────── */
+/*
+ * Each .fs-bg-part is a small <svg> with overflow="visible" and its own
+ * viewBox, positioned by inline left/top styles.  No shared viewport means
+ * nothing is ever clipped by a container viewBox.
+ *
+ * Base opacity is 0.38 — strong enough to be visible through semi-transparent
+ * panels.  The glow keyframe fires for ~15% of each part's cycle so that
+ * individual parts pulse at different times rather than all at once.
+ */
+.fs-bg-part {
+  color: rgb(185, 22, 42);
+  opacity: 0.38;
+  pointer-events: none;
+  animation: fs-part-pulse var(--dur, 12s) ease-in-out var(--delay, 0s) infinite;
 }
 
-/* Small accent corner lines (top-left) */
-.fs-bg-corner-tl::before,
-.fs-bg-corner-tl::after {
-  content: '';
-  position: absolute;
-  background: var(--vex-red);
-  border-radius: 2px;
-  opacity: 0.6;
-}
-.fs-bg-corner-tl::before {
-  width: 40px; height: 2px;
-  top: 20px; left: 10px;
-}
-.fs-bg-corner-tl::after {
-  width: 2px; height: 40px;
-  top: 10px; left: 20px;
-}
-
-/* Center soft glow behind field */
-.fs-bg-center-glow {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 60vw;
-  height: 60vh;
-  background: radial-gradient(ellipse, rgba(255,255,255,0.7) 0%, transparent 70%);
-}
-
-/* Animated diagonal motion lines */
-.fs-bg-line {
-  position: absolute;
-  width: 1px;
-  height: 300vh;
-  background: linear-gradient(
-    to bottom,
-    transparent 0%,
-    rgba(196, 30, 58, 0.0) 20%,
-    rgba(196, 30, 58, 0.35) 50%,
-    rgba(196, 30, 58, 0.0) 80%,
-    transparent 100%
-  );
-  transform-origin: center center;
-}
-
-.fs-bg-line-1 {
-  top: -50vh;
-  left: 25%;
-  transform: rotate(30deg);
-  animation: fs-line-sweep 14s ease-in-out infinite;
-  animation-delay: 0s;
-  opacity: 0.5;
-}
-.fs-bg-line-2 {
-  top: -50vh;
-  left: 55%;
-  transform: rotate(30deg);
-  animation: fs-line-sweep 18s ease-in-out infinite;
-  animation-delay: -5s;
-  opacity: 0.3;
-}
-.fs-bg-line-3 {
-  top: -50vh;
-  left: 75%;
-  width: 2px;
-  transform: rotate(30deg);
-  animation: fs-line-sweep 10s ease-in-out infinite;
-  animation-delay: -2s;
-  opacity: 0.4;
-}
-.fs-bg-line-4 {
-  top: -50vh;
-  left: 10%;
-  transform: rotate(30deg);
-  animation: fs-line-sweep 22s ease-in-out infinite;
-  animation-delay: -8s;
-  opacity: 0.25;
-}
-
-@keyframes fs-line-sweep {
-  0%   { transform: rotate(30deg) translateX(-60vw); opacity: 0; }
-  8%   { opacity: 1; }
-  92%  { opacity: 1; }
-  100% { transform: rotate(30deg) translateX(60vw);  opacity: 0; }
+@keyframes fs-part-pulse {
+  0%,  62%, 100% {
+    opacity: 0.35;
+    filter: none;
+  }
+  72% {
+    opacity: 0.80;
+    filter: drop-shadow(0 0 14px rgba(140, 5, 25, 0.85));
+  }
+  82% {
+    opacity: 0.55;
+    filter: drop-shadow(0 0 7px rgba(140, 5, 25, 0.50));
+  }
 }
 
 /* ── Header ────────────────────────────────────────────────────────────────── */
@@ -743,8 +668,8 @@
   flex-shrink: 0;
   border-radius: var(--radius-sm);
   overflow: hidden;
+  background: var(--bg);
   box-shadow:
-    0 0 0 1px rgba(0,0,0,0.12),
     0 8px 32px rgba(0,0,0,0.16),
     0 2px 8px rgba(0,0,0,0.10);
 }

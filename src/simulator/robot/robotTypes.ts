@@ -28,8 +28,8 @@ export const ROBOT_HALF = 7    // half-width/height for boundary math
 export const FIELD_HALF = 72   // field interior spans −72..+72 in both axes
 
 // Physics constants
-export const MOVE_SPEED = 65   // inches per second (≈ 2 ft/s, ≈ 3s to cross the field)
-export const TURN_RATE  = 200  // degrees per second (full rotation ≈ 1.2s)
+export const MOVE_SPEED = 60   // inches per second (≈ 2 ft/s, ≈ 3s to cross the field)
+export const TURN_RATE  = 270  // degrees per second (full rotation ≈ 1.2s)
 
 // Debug threshold — "near wall" warning when center is within this distance
 // of the clamped boundary (FIELD_HALF − ROBOT_HALF)
@@ -65,19 +65,34 @@ export const INTAKE_FRONT_OFFSET = 1.5
 // not an official Push Back possession rule).
 export const INTAKE_CAPACITY = 3
 
-// Held-block slot positions in robot-local frame.
-//   lx: distance forward from robot center (+lx = toward robot's heading)
-//   ly: lateral offset (+ly = robot's left in physics frame)
-export const HELD_SLOTS = [
-  { lx: ROBOT_W / 2 + 2.0, ly:  0.0 },  // center slot
-  { lx: ROBOT_W / 2 + 2.0, ly:  3.5 },  // left slot
-  { lx: ROBOT_W / 2 + 2.0, ly: -3.5 },  // right slot
-] as const
+// ── Held-block slot layout ────────────────────────────────────────────────────
+// Blocks are arranged in a 3-row × N-column grid in front of the robot.
+// Columns grow forward as more blocks are held; rows alternate center/left/right.
+//
+//   row 0 → ly =  0.0  (center)
+//   row 1 → ly = +3.7  (robot-left)
+//   row 2 → ly = -3.7  (robot-right)
+//   col k → lx = HELD_LX_BASE + k * HELD_COL_STEP
+//
+// Works for any index 0–8 (covers the max capacity of 9).
 
-// Release slot positions — blocks are placed here when the robot releases.
-// Beyond the rake tip so released blocks clear the pickup zone quickly.
-export const RELEASE_SLOTS = [
-  { lx: ROBOT_W / 2 + RAKE_REACH + 2.5, ly:  0.0 },
-  { lx: ROBOT_W / 2 + RAKE_REACH + 2.5, ly:  3.8 },
-  { lx: ROBOT_W / 2 + RAKE_REACH + 2.5, ly: -3.8 },
-] as const
+const HELD_LX_BASE  = ROBOT_W / 2 + 2.0   // first column: 2" beyond front face
+const HELD_COL_STEP = 3.8                  // column spacing ≈ block diameter + clearance
+const HELD_LY       = [0.0, 3.7, -3.7] as const
+
+/** Robot-local position for the i-th held block (i = 0…INTAKE_CAPACITY−1). */
+export function getHeldSlot(i: number): { lx: number; ly: number } {
+  return {
+    lx: HELD_LX_BASE + Math.floor(i / 3) * HELD_COL_STEP,
+    ly: HELD_LY[i % 3],
+  }
+}
+
+/** Robot-local release position for the i-th held block. */
+export function getReleaseSlot(i: number): { lx: number; ly: number } {
+  const baseLx = ROBOT_W / 2 + RAKE_REACH + 3.0
+  return {
+    lx: baseLx + Math.floor(i / 3) * HELD_COL_STEP,
+    ly: HELD_LY[i % 3],
+  }
+}

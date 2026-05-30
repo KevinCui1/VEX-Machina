@@ -20,7 +20,7 @@ import type {
   Vec2,
 } from './field/types'
 import { fieldViewBox, toSvg, toSvgRotation } from './field/geometry'
-import RobotLayer from './robot/RobotLayer'
+import RobotLayer, { type HeldBlock } from './robot/RobotLayer'
 import type { RobotState } from './robot/robotTypes'
 import PhysicsBlockLayer from './physics/PhysicsBlockLayer'
 import type { PhysicsBlock } from './physics/physicsTypes'
@@ -37,15 +37,29 @@ interface FieldViewProps {
   heldIds: string[]
 }
 
-const MARGIN = 30 // inches of breathing room around the interior for stations
+const MARGIN = 2
 
 export default function FieldView({
   field, showDebug, showLabels, robot, showRobotDebug,
   physicsBlocks, intakeActive, heldIds,
 }: FieldViewProps) {
-  const heldColors = heldIds
-    .map(id => physicsBlocks.find(b => b.id === id)?.color)
-    .filter((c): c is 'red' | 'blue' => c !== undefined)
+  // Compute each held block's robot-local position so RobotLayer can render
+  // them at their actual physics positions (they shift with acceleration/stops).
+  const rad  = (robot.heading * Math.PI) / 180
+  const cosH = Math.cos(rad)
+  const sinH = Math.sin(rad)
+  const heldBlocks: HeldBlock[] = heldIds
+    .map(id => physicsBlocks.find(b => b.id === id))
+    .filter((b): b is typeof physicsBlocks[number] => b !== undefined)
+    .map(b => {
+      const wx = b.x - robot.x
+      const wy = b.y - robot.y
+      return {
+        color: b.color,
+        lx:  wx * cosH + wy * sinH,   // forward component
+        ly: -wx * sinH + wy * cosH,   // lateral component (+ = robot-left)
+      }
+    })
   const { shell } = field
   const half = shell.nominalInteriorSize / 2
   const vb = fieldViewBox(shell.nominalInteriorSize, MARGIN)
@@ -58,21 +72,17 @@ export default function FieldView({
       aria-label={`${field.meta.game} field, top-down view`}
     >
       <defs>
-        <linearGradient id="foam" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#33383f" />
-          <stop offset="100%" stopColor="#262a30" />
-        </linearGradient>
         <linearGradient id="wall" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#6b7480" />
-          <stop offset="100%" stopColor="#454c56" />
+          <stop offset="0%" stopColor="#50565e" />
+          <stop offset="100%" stopColor="#373c43" />
         </linearGradient>
         <radialGradient id="vignette" cx="50%" cy="50%" r="65%">
           <stop offset="60%" stopColor="rgba(0,0,0,0)" />
-          <stop offset="100%" stopColor="rgba(0,0,0,0.35)" />
+          <stop offset="100%" stopColor="rgba(0,0,0,0.18)" />
         </radialGradient>
         <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="rgba(205,228,245,0.22)" />
-          <stop offset="100%" stopColor="rgba(150,185,215,0.10)" />
+          <stop offset="0%" stopColor="rgba(215,192,148,0.55)" />
+          <stop offset="100%" stopColor="rgba(195,168,118,0.35)" />
         </linearGradient>
       </defs>
 
@@ -84,8 +94,6 @@ export default function FieldView({
         height={vb.height}
         className="fv-backdrop"
       />
-
-      <AllianceStations stations={field.allianceStations} half={half} margin={MARGIN} />
 
       <Perimeter half={half} thickness={shell.wallThickness} />
 
@@ -111,8 +119,7 @@ export default function FieldView({
         robot={robot}
         showDebug={showRobotDebug}
         intakeActive={intakeActive}
-        heldCount={heldIds.length}
-        heldColors={heldColors}
+        heldBlocks={heldBlocks}
       />
 
       {/* Soft vignette to sell the "simulator" look. */}
@@ -125,7 +132,6 @@ export default function FieldView({
         pointerEvents="none"
       />
 
-      {showLabels && <Labels field={field} />}
       {showDebug && <DebugOverlay field={field} half={half} />}
     </svg>
   )
@@ -133,22 +139,25 @@ export default function FieldView({
 
 // ─── Foam floor ──────────────────────────────────────────────────────────────
 
+const TILE_COLOR_A = '#b0b0b0' // top-left and every (col+row) even tile
+const TILE_COLOR_B = '#b8b8b8' // tiles to the right of A
+
 function FoamFloor({ half, tiles, tileSize }: { half: number; tiles: number; tileSize: number }) {
-  const seams: number[] = []
-  for (let i = 1; i < tiles; i++) seams.push(-half + i * tileSize)
+  const tileRects: { key: string; x: number; y: number; fill: string }[] = []
+  for (let row = 0; row < tiles; row++) {
+    for (let col = 0; col < tiles; col++) {
+      tileRects.push({
+        key: `t${col}_${row}`,
+        x: -half + col * tileSize,
+        y: -half + row * tileSize,
+        fill: (col + row) % 2 === 0 ? TILE_COLOR_A : TILE_COLOR_B,
+      })
+    }
+  }
   return (
     <g className="fv-floor">
-      <rect x={-half} y={-half} width={half * 2} height={half * 2} fill="url(#foam)" />
-      {/* Tile seams */}
-      {seams.map((c) => (
-        <Fragment key={`v${c}`}>
-          <line x1={c} y1={-half} x2={c} y2={half} className="fv-seam" />
-        </Fragment>
-      ))}
-      {seams.map((c) => (
-        <Fragment key={`h${c}`}>
-          <line x1={-half} y1={c} x2={half} y2={c} className="fv-seam" />
-        </Fragment>
+      {tileRects.map((t) => (
+        <rect key={t.key} x={t.x} y={t.y} width={tileSize} height={tileSize} fill={t.fill} />
       ))}
     </g>
   )
@@ -201,57 +210,6 @@ function Perimeter({ half, thickness }: { half: number; thickness: number }) {
   )
 }
 
-// ─── Alliance stations ───────────────────────────────────────────────────────
-
-function AllianceStations({
-  stations,
-  half,
-  margin,
-}: {
-  stations: AllianceStation[]
-  half: number
-  margin: number
-}) {
-  return (
-    <g className="fv-stations">
-      {stations.map((s) => {
-        const t = s.thickness
-        const gap = (margin - t) / 2 + 2 // sit just outside the wall
-        let rect: { x: number; y: number; w: number; h: number }
-        let labelPos: Vec2
-        if (s.side === 'top') {
-          rect = { x: -half, y: -(half + gap + t), w: half * 2, h: t }
-          labelPos = { x: 0, y: rect.y + t / 2 }
-        } else if (s.side === 'bottom') {
-          rect = { x: -half, y: half + gap, w: half * 2, h: t }
-          labelPos = { x: 0, y: rect.y + t / 2 }
-        } else if (s.side === 'left') {
-          rect = { x: -(half + gap + t), y: -half, w: t, h: half * 2 }
-          labelPos = { x: rect.x + t / 2, y: 0 }
-        } else {
-          rect = { x: half + gap, y: -half, w: t, h: half * 2 }
-          labelPos = { x: rect.x + t / 2, y: 0 }
-        }
-        return (
-          <g key={s.id}>
-            <rect
-              x={rect.x}
-              y={rect.y}
-              width={rect.w}
-              height={rect.h}
-              rx={2}
-              className={`fv-station fv-${s.alliance}`}
-            />
-            <text x={labelPos.x} y={labelPos.y} className="fv-station-label" dominantBaseline="middle">
-              {s.label}
-            </text>
-          </g>
-        )
-      })}
-    </g>
-  )
-}
-
 // ─── Park zones (L-shaped corner bands) ──────────────────────────────────────
 
 function ParkZones({ zones, half }: { zones: ParkZone[]; half: number }) {
@@ -284,11 +242,7 @@ function ParkZones({ zones, half }: { zones: ParkZone[]; half: number }) {
           h: z.armAlongY,
         }
         return (
-          <g key={z.id} className={`fv-park fv-${z.alliance}`}>
-            <rect x={fillX} y={fillY} width={z.armAlongX} height={z.armAlongY} className="fv-park-fill" />
-            <rect x={stripA.x} y={stripA.y} width={stripA.w} height={stripA.h} className="fv-park-strip" />
-            <rect x={stripB.x} y={stripB.y} width={stripB.w} height={stripB.h} className="fv-park-strip" />
-          </g>
+          <g key={z.id} className={`fv-park fv-${z.alliance}`} />
         )
       })}
     </g>
