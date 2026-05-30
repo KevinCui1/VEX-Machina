@@ -1,0 +1,375 @@
+.field-simulator {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: #090b0f;
+  color: #c8d8e8;
+  font-family: 'Courier New', Courier, monospace;
+}
+
+.fs-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 28px;
+  border-bottom: 1px solid rgba(79, 195, 247, 0.12);
+  background: rgba(9, 11, 15, 0.9);
+}
+
+.fs-controls {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+
+.fs-toggle {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(200, 216, 232, 0.6);
+  background: rgba(79, 195, 247, 0.06);
+  border: 1px solid rgba(79, 195, 247, 0.18);
+  border-radius: 5px;
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.fs-toggle:hover {
+  color: #d8e8f8;
+  border-color: rgba(79, 195, 247, 0.4);
+}
+
+.fs-toggle.is-on {
+  color: #0c0f14;
+  background: #5ab4d8;
+  border-color: #5ab4d8;
+}
+
+.fs-wordmark {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #e8f4ff;
+}
+
+.fs-badge {
+  font-size: 11px;
+  letter-spacing: 0.25em;
+  color: rgba(79, 195, 247, 0.6);
+  text-transform: uppercase;
+}
+
+.fs-canvas-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+  padding: 20px;
+  background:
+    radial-gradient(circle at 50% 38%, rgba(79, 195, 247, 0.05), transparent 60%),
+    #090b0f;
+}
+
+.fs-layout-row {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 16px;
+  width: 100%;
+  max-height: calc(100vh - 160px);
+}
+
+.fs-field-frame {
+  /* keep the field square and as large as the viewport allows */
+  height: min(calc(100vh - 160px), calc(100vw - 260px));
+  width: min(calc(100vh - 160px), calc(100vw - 260px));
+  aspect-ratio: 1 / 1;
+  flex-shrink: 0;
+}
+
+.fs-orientation-note {
+  margin-top: 12px;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: rgba(200, 216, 232, 0.4);
+  text-align: center;
+  max-width: 80%;
+}
+
+.fs-footer {
+  padding: 10px 28px;
+  border-top: 1px solid rgba(79, 195, 247, 0.08);
+  font-size: 10px;
+  letter-spacing: 0.15em;
+  color: rgba(200, 216, 232, 0.25);
+  text-transform: uppercase;
+}
+
+/* ── Reset button ──────────────────────────────────────────────────────────── */
+.fs-reset {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(200, 216, 232, 0.8);
+  background: rgba(79, 195, 247, 0.12);
+  border: 1px solid rgba(79, 195, 247, 0.4);
+  border-radius: 5px;
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.fs-reset:hover {
+  background: rgba(79, 195, 247, 0.22);
+  color: #e8f4ff;
+}
+.fs-reset:active {
+  background: rgba(79, 195, 247, 0.35);
+}
+
+/* ── Reserve panel ─────────────────────────────────────────────────────────── */
+.fs-reserve-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 160px;
+  max-width: 180px;
+  padding: 12px;
+  background: rgba(16, 20, 28, 0.85);
+  border: 1px solid rgba(79, 195, 247, 0.12);
+  border-radius: 8px;
+  align-self: flex-start;
+}
+
+.fs-reserve-title {
+  font-size: 9px;
+  letter-spacing: 0.25em;
+  color: rgba(79, 195, 247, 0.55);
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+
+.fs-reserve-group {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px;
+  border-radius: 6px;
+}
+
+.fs-red-group {
+  background: rgba(184, 40, 40, 0.1);
+  border: 1px solid rgba(200, 60, 60, 0.18);
+}
+
+.fs-blue-group {
+  background: rgba(40, 80, 200, 0.1);
+  border: 1px solid rgba(60, 100, 220, 0.18);
+}
+
+.fs-reserve-alliance {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.25em;
+  margin-bottom: 3px;
+}
+
+.fs-red-group .fs-reserve-alliance { color: #e87070; }
+.fs-blue-group .fs-reserve-alliance { color: #7090f0; }
+
+.fs-reserve-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.fs-reserve-label {
+  font-size: 10px;
+  color: rgba(200, 216, 232, 0.6);
+}
+
+.fs-reserve-count {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.fs-red-count  { color: #e87070; }
+.fs-blue-count { color: #7090f0; }
+
+.fs-reserve-total {
+  font-size: 9px;
+  color: rgba(200, 216, 232, 0.4);
+  margin-top: 2px;
+  text-align: right;
+}
+
+/* ── Legend ────────────────────────────────────────────────────────────────── */
+.fs-reserve-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(79, 195, 247, 0.1);
+}
+
+.fs-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: rgba(200, 216, 232, 0.5);
+}
+
+.fs-legend-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 1px;
+  flex-shrink: 0;
+  clip-path: polygon(50% 0%, 85% 15%, 100% 50%, 85% 85%, 50% 100%, 15% 85%, 0% 50%, 15% 15%);
+}
+
+.fs-legend-field     { background: #e8382a; }
+.fs-legend-loader    { background: #e8382a; opacity: 0.55; }
+.fs-legend-matchload { background: rgba(200, 216, 232, 0.3); }
+.fs-legend-preload   { background: rgba(200, 216, 232, 0.2); border: 1px solid rgba(200,216,232,0.4); }
+
+/* ── Robot reset button variant ────────────────────────────────────────────── */
+.fs-robot-reset {
+  color: rgba(200, 216, 232, 0.7);
+  border-color: rgba(79, 195, 247, 0.28);
+}
+.fs-robot-reset:hover {
+  border-color: rgba(79, 195, 247, 0.5);
+  color: #e8f4ff;
+}
+
+/* ── Robot debug panel ─────────────────────────────────────────────────────── */
+.fs-robot-panel {
+  border-color: rgba(255, 220, 60, 0.18);
+}
+
+.fs-robot-stat {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.fs-robot-key {
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  color: rgba(255, 220, 60, 0.55);
+  text-transform: uppercase;
+  min-width: 30px;
+}
+
+.fs-robot-val {
+  font-size: 11px;
+  font-weight: 700;
+  color: rgba(255, 220, 60, 0.85);
+  letter-spacing: 0.04em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.fs-robot-warn {
+  color: #ff6060;
+  animation: fs-blink 0.6s step-start infinite;
+}
+
+@keyframes fs-blink {
+  50% { opacity: 0.3; }
+}
+
+.fs-robot-divider {
+  height: 1px;
+  background: rgba(255, 220, 60, 0.12);
+  margin: 4px 0;
+}
+
+/* ── Key pill indicators ────────────────────────────────────────────────────── */
+.fs-robot-keys {
+  display: flex;
+  gap: 4px;
+  justify-content: center;
+  margin: 3px 0;
+}
+
+.fs-keypill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 20px;
+  font-size: 10px;
+  font-family: 'Courier New', Courier, monospace;
+  border-radius: 3px;
+  background: rgba(30, 34, 42, 0.9);
+  border: 1px solid rgba(79, 195, 247, 0.18);
+  color: rgba(200, 216, 232, 0.35);
+  transition: all 0.06s ease;
+  user-select: none;
+}
+
+.fs-keypill-on {
+  background: rgba(255, 220, 60, 0.18);
+  border-color: rgba(255, 220, 60, 0.65);
+  color: rgba(255, 220, 60, 0.95);
+}
+
+/* ── Accuracy note ─────────────────────────────────────────────────────────── */
+.fs-accuracy-note {
+  font-size: 9px;
+  line-height: 1.5;
+  color: rgba(200, 216, 232, 0.28);
+  text-align: center;
+  border-top: 1px solid rgba(79, 195, 247, 0.08);
+  padding-top: 6px;
+}
+
+/* ── Active state highlight for intake readouts ──────────────────────────── */
+.fs-robot-active {
+  color: rgba(100, 255, 160, 0.90) !important;
+}
+
+/* ── Smaller value text (for block IDs) ──────────────────────────────────── */
+.fs-robot-val-sm {
+  font-size: 8px;
+  letter-spacing: 0;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 80px;
+}
+
+/* ── Controls guide bar ──────────────────────────────────────────────────── */
+.fs-controls-guide {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  justify-content: center;
+  margin-top: 10px;
+  font-size: 10px;
+  color: rgba(200, 216, 232, 0.38);
+  letter-spacing: 0.04em;
+}
+
+.fs-controls-guide kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 9.5px;
+  color: rgba(200, 216, 232, 0.65);
+  background: rgba(50, 56, 68, 0.8);
+  border: 1px solid rgba(79, 195, 247, 0.25);
+  border-radius: 3px;
+  white-space: nowrap;
+}

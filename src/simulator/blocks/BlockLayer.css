@@ -1,0 +1,78 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   BlockLayer — Push Back Block visual styles.
+   Stroke/font sizes are in INCHES (1 SVG unit = 1 inch).
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* ── Block body ──────────────────────────────────────────────────────────────── */
+.bl-block {
+  stroke-width: 0.18;
+}
+
+.bl-block.bl-red {
+  fill: #e8382a;
+  stroke: #a81e14;
+}
+
+.bl-block.bl-blue {
+  fill: #2468e0;
+  stroke: #1040a0;
+}
+
+/* ── Inner bevel (lighter highlight on top face) ─────────────────────────────── */
+.bl-inner {
+  fill: none;
+  stroke-width: 0.22;
+  opacity: 0.55;
+}
+
+.bl-inner.bl-red {
+  stroke: #f87060;
+}
+
+.bl-inner.bl-blue {
+  stroke: #5a9aff;
+}
+
+/* ── Drop shadow ─────────────────────────────────────────────────────────────── */
+.bl-shadow {
+  fill: rgba(0, 0, 0, 0.5);
+}
+
+/* ── Category dot (loader-sourced blocks) ────────────────────────────────────── */
+.bl-cat-dot {
+  fill: rgba(255, 255, 255, 0.7);
+}
+
+/* ── Debug labels ────────────────────────────────────────────────────────────── */
+.bl-debug-label {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 1.8px;
+  fill: rgba(200, 240, 200, 0.9);
+  paint-order: stroke;
+  stroke: rgba(0, 0, 0, 0.8);
+  stroke-width: 0.6;
+  dominant-baseline: middle;
+}
+
+/* ── Loader indicators ───────────────────────────────────────────────────────── */
+.bl-loader-count {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 3px;
+  font-weight: 700;
+  text-anchor: middle;
+  dominant-baseline: middle;
+}
+
+.bl-loader-count.bl-red-text {
+  fill: #f07070;
+  paint-order: stroke;
+  stroke: rgba(0, 0, 0, 0.7);
+  stroke-width: 0.7;
+}
+
+.bl-loader-count.bl-blue-text {
+  fill: #6090f0;
+  paint-order: stroke;
+  stroke: rgba(0, 0, 0, 0.7);
+  stroke-width: 0.7;
+}

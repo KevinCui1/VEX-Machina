@@ -1,0 +1,87 @@
+/* PhysicsBlockLayer — Step 4 + Step 5 physics block rendering. */
+
+.pbl-layer {
+  pointer-events: none;
+}
+
+/* ── Drop shadow ─────────────────────────────────────────────────────────── */
+.pbl-shadow {
+  fill: rgba(0, 0, 0, 0.45);
+}
+/* Tighter shadow for held blocks (less contact with ground) */
+.pbl-shadow-held {
+  fill: rgba(0, 0, 0, 0.20);
+}
+
+/* ── Block bodies ────────────────────────────────────────────────────────── */
+.pbl-block.pbl-red  { fill: #e03030; }
+.pbl-block.pbl-blue { fill: #2460d0; }
+
+/* Held blocks: slightly brightened to draw attention */
+.pbl-block.pbl-held.pbl-red  { fill: #ee4444; }
+.pbl-block.pbl-held.pbl-blue { fill: #3070e0; }
+
+/* ── Inner bevel ─────────────────────────────────────────────────────────── */
+.pbl-inner.pbl-red  { fill: #f05a50; opacity: 0.70; }
+.pbl-inner.pbl-blue { fill: #4080f0; opacity: 0.70; }
+
+/* ── Center dot ──────────────────────────────────────────────────────────── */
+.pbl-center-dot {
+  fill: rgba(255, 255, 255, 0.55);
+}
+/* Held blocks get a bright white center dot for clear visual distinction */
+.pbl-center-dot-held {
+  fill: rgba(255, 255, 255, 0.95);
+}
+
+/* ── Held-state orbit ring ───────────────────────────────────────────────── */
+.pbl-held-ring {
+  fill: none;
+  stroke-width: 0.45;
+  stroke-dasharray: 1.2 0.7;
+  animation: held-ring-spin 1.2s linear infinite;
+}
+.pbl-held-ring-red  {
+  stroke: rgba(255, 120, 120, 0.85);
+}
+.pbl-held-ring-blue {
+  stroke: rgba(100, 170, 255, 0.85);
+}
+
+@keyframes held-ring-spin {
+  from { stroke-dashoffset: 0; }
+  to   { stroke-dashoffset: -12; }
+}
+
+/* ── Debug overlays ─────────────────────────────────────────────────────────── */
+.pbl-debug-circle {
+  fill: none;
+  stroke: rgba(255, 220, 50, 0.80);
+  stroke-width: 0.22;
+  stroke-dasharray: 0.8 0.5;
+}
+
+.pbl-debug-vel {
+  stroke: rgba(80, 255, 100, 0.90);
+  stroke-width: 0.38;
+  stroke-linecap: round;
+}
+
+.pbl-debug-label {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 1.5px;
+  fill: rgba(255, 255, 200, 0.85);
+  dominant-baseline: middle;
+}
+
+.pbl-debug-state {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 1.3px;
+  fill: rgba(180, 180, 180, 0.75);
+  dominant-baseline: middle;
+}
+
+.pbl-debug-state-held {
+  fill: rgba(100, 255, 160, 0.90);
+  font-weight: bold;
+}

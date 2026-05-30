@@ -1,0 +1,155 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   RobotLayer — top-down robot body + rake intake styles.
+   All sizes are in field inches (1 SVG unit = 1 inch).
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* ── Shadow ────────────────────────────────────────────────────────────────── */
+.rl-shadow {
+  fill: rgba(0, 0, 0, 0.45);
+}
+
+/* ── Chassis body ──────────────────────────────────────────────────────────── */
+.rl-body {
+  fill: #1a1e26;
+}
+.rl-body.rl-red  { fill: #1e1518; }
+.rl-body.rl-blue { fill: #141520; }
+
+/* ── Wheel/structural inset rectangles ─────────────────────────────────────── */
+.rl-wheel {
+  fill: rgba(40, 44, 52, 0.9);
+  stroke: rgba(80, 88, 100, 0.6);
+  stroke-width: 0.25;
+}
+
+/* ── Intake housing ─────────────────────────────────────────────────────────── */
+.rl-intake {
+  fill: #2a2e38;
+}
+.rl-intake.rl-red {
+  fill: rgba(210, 60,  60,  0.80);
+  stroke: rgba(240, 80,  80,  0.55);
+  stroke-width: 0.3;
+}
+.rl-intake.rl-blue {
+  fill: rgba(60,  100, 210, 0.80);
+  stroke: rgba(80,  130, 245, 0.55);
+  stroke-width: 0.3;
+}
+/* Brighter fill when intake is actively engaged. */
+.rl-intake.rl-intake-active.rl-red {
+  fill: rgba(255, 70, 70, 0.95);
+  stroke: rgba(255, 120, 120, 0.9);
+  stroke-width: 0.5;
+  filter: drop-shadow(0 0 1.5px rgba(255, 80, 80, 0.8));
+}
+.rl-intake.rl-intake-active.rl-blue {
+  fill: rgba(70, 130, 255, 0.95);
+  stroke: rgba(100, 170, 255, 0.9);
+  stroke-width: 0.5;
+  filter: drop-shadow(0 0 1.5px rgba(80, 140, 255, 0.8));
+}
+
+/* ── Held block swatches (small color indicators inside robot) ─────────────── */
+.rl-held-swatch {
+  opacity: 0.85;
+  stroke: rgba(255, 255, 255, 0.35);
+  stroke-width: 0.2;
+}
+.rl-held-red  { fill: #e83030; }
+.rl-held-blue { fill: #2460d0; }
+
+/* ── Rake group ─────────────────────────────────────────────────────────────── */
+
+/* Glow area: a soft halo behind the rake tines. */
+.rl-rake-glow {
+  fill: none;
+  stroke-width: 0.6;
+  opacity: 0.45;
+  animation: rake-pulse 0.7s ease-in-out infinite alternate;
+}
+.rl-rake-red   .rl-rake-glow { stroke: #ff5555; }
+.rl-rake-blue  .rl-rake-glow { stroke: #4499ff; }
+
+/* Back and front connection bars */
+.rl-rake-bar {
+  fill: #888fa0;
+  stroke: rgba(200, 210, 220, 0.5);
+  stroke-width: 0.18;
+}
+
+/* Rake tines — alliance-colored to signal which robot is operating */
+.rl-rake-tine {
+  stroke-width: 0.2;
+}
+.rl-rake-tine.rl-rake-tine-red {
+  fill: #cc3333;
+  stroke: #ff7777;
+}
+.rl-rake-tine.rl-rake-tine-blue {
+  fill: #2255bb;
+  stroke: #5599ff;
+}
+
+/* Pulsing animation for the glow when intake is active */
+@keyframes rake-pulse {
+  from { opacity: 0.30; }
+  to   { opacity: 0.65; }
+}
+
+/* ── Alliance outline / glow ────────────────────────────────────────────────── */
+.rl-outline {
+  fill: none;
+  stroke-width: 0.7;
+}
+.rl-outline.rl-red  { stroke: #e84040; }
+.rl-outline.rl-blue { stroke: #4080f8; }
+
+/* ── Heading arrow ──────────────────────────────────────────────────────────── */
+.rl-arrow {
+  fill: none;
+  stroke-width: 0.6;
+  stroke-linejoin: round;
+}
+.rl-arrow.rl-red  { fill: #e84040; stroke: rgba(255, 80, 80, 0.5); }
+.rl-arrow.rl-blue { fill: #4080f8; stroke: rgba(80, 140, 255, 0.5); }
+
+/* ── Debug overlays ─────────────────────────────────────────────────────────── */
+.rl-debug-box {
+  fill: none;
+  stroke: rgba(255, 220, 60, 0.85);
+  stroke-width: 0.35;
+  stroke-dasharray: 1.8 1.4;
+}
+.rl-debug-cross {
+  stroke: rgba(255, 220, 60, 0.7);
+  stroke-width: 0.3;
+}
+.rl-debug-dot {
+  fill: rgba(255, 220, 60, 0.95);
+}
+.rl-debug-label {
+  fill: rgba(255, 220, 60, 0.9);
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 2.8px;
+  paint-order: stroke;
+  stroke: rgba(10, 12, 16, 0.9);
+  stroke-width: 0.8;
+}
+.rl-debug-held-label {
+  fill: rgba(255, 255, 255, 0.85);
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 3.0px;
+  font-weight: bold;
+  paint-order: stroke;
+  stroke: rgba(10, 12, 16, 0.85);
+  stroke-width: 0.9;
+}
+
+/* ── Debug intake zone rectangle ─────────────────────────────────────────────── */
+.rl-debug-intake-zone {
+  fill: rgba(120, 255, 120, 0.08);
+  stroke: rgba(100, 255, 100, 0.70);
+  stroke-width: 0.35;
+  stroke-dasharray: 1.5 1.0;
+}
