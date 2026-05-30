@@ -10,7 +10,6 @@
 
 import { Fragment } from 'react'
 import type {
-  AllianceStation,
   CenterGoal,
   GameField,
   Loader,
@@ -101,7 +100,7 @@ export default function FieldView({
 
       <CoordGrid half={half} tileSize={shell.tileSize} wallThickness={shell.wallThickness} />
 
-      <ParkZones zones={field.parkZones} half={half} />
+      <ParkZones zones={field.parkZones} />
 
       <TapeLines lines={field.tapeLines} />
 
@@ -110,6 +109,8 @@ export default function FieldView({
       <CenterGoals goals={field.centerGoals} />
 
       <Loaders loaders={field.loaders} />
+
+      {showLabels && <Labels field={field} />}
 
       {/* Step 4: Physics blocks */}
       <PhysicsBlockLayer blocks={physicsBlocks} showDebug={showDebug} />
@@ -212,35 +213,11 @@ function Perimeter({ half, thickness }: { half: number; thickness: number }) {
 
 // ─── Park zones (L-shaped corner bands) ──────────────────────────────────────
 
-function ParkZones({ zones, half }: { zones: ParkZone[]; half: number }) {
+function ParkZones({ zones }: { zones: ParkZone[] }) {
   return (
     <g className="fv-parkzones">
       {zones.map((z) => {
         // Corner sign: which way the arms extend from the corner.
-        const left = z.corner.includes('left')
-        const top = z.corner.includes('top')
-        const cx = left ? -half : half // corner x at the wall
-        const cy = top ? -half : half // SVG: top wall is -Y
-
-        // Filled enclosed L-region (light tint), anchored at the corner.
-        const fillX = left ? cx : cx - z.armAlongX
-        const fillY = top ? cy : cy - z.armAlongY
-
-        // The two strips forming the L.
-        const stripA = {
-          // along the top/bottom wall
-          x: left ? cx : cx - z.armAlongX,
-          y: top ? cy : cy - z.stripWidth,
-          w: z.armAlongX,
-          h: z.stripWidth,
-        }
-        const stripB = {
-          // along the side wall
-          x: left ? cx : cx - z.stripWidth,
-          y: top ? cy : cy - z.armAlongY,
-          w: z.stripWidth,
-          h: z.armAlongY,
-        }
         return (
           <g key={z.id} className={`fv-park fv-${z.alliance}`} />
         )
