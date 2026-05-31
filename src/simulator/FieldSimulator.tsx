@@ -17,7 +17,7 @@ const TURN_STEP    = 45
 
 export default function FieldSimulator() {
   const [showDebug, setShowDebug]   = useState(false)
-  const [showLabels, setShowLabels] = useState(true)
+  const [showGrid, setShowGrid]     = useState(false)
   const [capacity,  setCapacity]  = useState<number>(() => loadInt('sim_capacity',  INTAKE_CAPACITY, CAPACITY_MIN, CAPACITY_MAX))
   const [moveSpeed, setMoveSpeed] = useState<number>(() => loadInt('sim_moveSpeed', MOVE_SPEED,      SPEED_MIN,    SPEED_MAX))
   const [turnRate,  setTurnRate]  = useState<number>(() => loadInt('sim_turnRate',  TURN_RATE,       TURN_MIN,     TURN_MAX))
@@ -122,7 +122,7 @@ export default function FieldSimulator() {
             <FieldView
               field={pushBackField}
               showDebug={showDebug}
-              showLabels={showLabels}
+              showGrid={showGrid}
               robot={robot}
               showRobotDebug={showDebug}
               physicsBlocks={physicsBlocks}
@@ -201,7 +201,7 @@ export default function FieldSimulator() {
             </h2>
 
             <div className="fs-toggle-group">
-              <ToggleSwitch label="Block Labels"   checked={showLabels} onChange={() => setShowLabels(v => !v)} />
+              <ToggleSwitch label="Inch Grid"      checked={showGrid}   onChange={() => setShowGrid(v => !v)} />
               <ToggleSwitch label="Debug Overlay"  checked={showDebug}  onChange={() => setShowDebug(v => !v)} />
             </div>
 

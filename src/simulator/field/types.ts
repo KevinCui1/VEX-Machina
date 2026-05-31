@@ -114,18 +114,23 @@ export interface Loader {
   placement: SourceNote
 }
 
-/** An alliance-colored L-shaped Park Zone hugging a field corner. */
+/** An alliance-colored rectangular Park Zone band centered on a wall. */
 export interface ParkZone {
   id: string
   alliance: Alliance
-  /** Which corner the L hugs. */
-  corner: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
-  /** Arm length running along the top/bottom wall. */
-  armAlongX: number
-  /** Arm length running along the side wall. */
-  armAlongY: number
-  /** Width of the colored strip. */
-  stripWidth: number
+  /** Center of the zone in field inches (+Y up). */
+  center: Vec2
+  /** Zone width along X (the wall direction). */
+  width: number
+  /** Zone height along Y (into the field from the wall). */
+  height: number
+  /**
+   * If set, an inner layer is drawn inset by this many inches on the three
+   * exposed sides (left, right, and the interior-facing side). The wall-side
+   * edge is flush with the outer layer. Matches the official park zone tape
+   * structure visible in the field assembly reference.
+   */
+  innerInset?: number
   placement: SourceNote
 }
 

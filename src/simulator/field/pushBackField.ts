@@ -23,21 +23,24 @@ import type { GameField } from './types'
 const TILES_PER_SIDE = 6
 const TILE_SIZE = 24 // inches; 6 * 24 = 144 nominal
 const NOMINAL_INTERIOR = TILES_PER_SIDE * TILE_SIZE // 144
-const WALL_TO_WALL = 140.5 // official inside wall-to-wall
-const HALF = NOMINAL_INTERIOR / 2 // 72 — interior spans -72..+72
+const WALL_TO_WALL = 140.43 // official inside wall-to-wall (user coordinate system: 0..140.43)
+const HALF = NOMINAL_INTERIOR / 2 // 72 — nominal render span, interior tiles span -72..+72
+// Actual field half-width for placement using real inch coordinates.
+// User coordinate system: (0,0) = bottom-left corner of usable field area.
+// Conversion: internal = user - FIELD_ACTUAL_HALF  (X axis)
+//             internal = user - FIELD_ACTUAL_HALF  (Y axis, +Y up)
+const FIELD_ACTUAL_HALF = WALL_TO_WALL / 2 // 70.215
 
 // Long Goal section lengths (verified from "Long Goal Specifications").
 const LG_TOTAL = 48.79 // 1239.27 mm
 const LG_ENCLOSED = 13.33 // enclosed center section (Game Manual)
 const LG_OPEN = (LG_TOTAL - LG_ENCLOSED) / 2 // 17.73 — matches 450.29 mm spec
-const LG_DEPTH = 5.53 // verified from Long Goal Specs: 140.53mm total cross-section
+const LG_DEPTH = 5.4 // user-specified width (cross-section of the goal)
 
 // Long Goal left/right centerline offset from field center.
-// APPROXIMATE: from field-measurements.png reference, paired boundary features
-// appear at ~20.33" and ~23.58" from center, giving midpoint ≈ 21.955".
-// Goals run VERTICALLY (rotation=90°) along the Y axis, confirmed by both
-// the field-top-view and object-placement Appendix A top-down images.
-const LG_X_OFFSET = 21.955
+// Placed at the midline of the tile one step outward from center (tile 24"–48"
+// from center, midpoint = 36").  Goals run VERTICALLY (rotation=90°) along Y.
+const LG_X_OFFSET = 48
 
 // Center Goal (verified length from "Center Goal Specifications": 573.99 mm).
 const CG_LENGTH = 22.6
@@ -50,10 +53,14 @@ const LOADER_D = 5
 const LOADER_MOUTH = 3.94
 const LOADER_X_OFFSET = 54 // approximate: loaders sit near the corners
 
-// Park Zone L dimensions (verified from "Park Zone Specifications").
-const PZ_ALONG_X = 16.86 // 428.18 mm
-const PZ_ALONG_Y = 18.87 // 479.35 mm
-const PZ_STRIP = 2.0 // 50.80 mm
+// Park Zone dimensions (verified from field specifications).
+// User coords: outer X spans 60.77..79.64 (centered at field center X = 70.215).
+// Width = 79.64 - 60.77 = 18.87" along the wall (X axis).
+// Height = 16.86" into the field from the wall (Y axis).
+// Inner layer: 2" inset on the three exposed sides (left, right, interior-facing).
+const PZ_WIDTH  = 18.87 // along X (wall direction)
+const PZ_HEIGHT = 16.86 // into field from wall
+const PZ_INNER_INSET = 2 // inner layer inset on 3 exposed sides
 
 export const pushBackField: GameField = {
   meta: {
@@ -63,8 +70,9 @@ export const pushBackField: GameField = {
       'Audience view (manual / CAD top-down). +X = right, +Y = up toward Blue alliance station.',
     units: 'inches',
     notes: [
-      'Origin is the geometric center of the 144" nominal interior (interior spans -72..+72).',
-      'Official inside wall-to-wall is 140.5"; the 144" nominal (6 x 24" tiles) is used as the coordinate span.',
+      'User coordinate system: (0,0) = bottom-left corner of usable field, (140.43, 140.43) = top-right corner.',
+      'Internal rendering uses center-origin (+Y up); conversion: internal = user - 70.215.',
+      'Nominal tile grid is 6 × 24" = 144" (internal spans -72..+72); actual wall-to-wall is 140.43".',
       'Element SIZES are mostly verified from CAD specs; element POSITIONS/ORIENTATIONS are approximate (flagged per element).',
       'Blue alliance station = top (+Y), Red alliance station = bottom (-Y). Confirm against official FO-1 before treating as final.',
     ],
@@ -78,7 +86,7 @@ export const pushBackField: GameField = {
     wallThickness: 2, // ~1.27" real; widened slightly for legibility
     shellSource: {
       confidence: 'verified',
-      source: 'Field Critical Specs (278-1501): ~140.5" inside wall-to-wall, 24" tiles.',
+      source: 'Field Critical Specs (278-1501): 140.43" inside wall-to-wall, 24" tiles (144" nominal).',
       note: 'Wall thickness widened from 1.27" to 2" for top-down legibility.',
     },
   },
@@ -114,27 +122,31 @@ export const pushBackField: GameField = {
     {
       id: 'park-blue',
       alliance: 'blue',
-      corner: 'top-left',
-      armAlongX: PZ_ALONG_X,
-      armAlongY: PZ_ALONG_Y,
-      stripWidth: PZ_STRIP,
+      // User coords: x=60.77..79.64, y=123.57..140.43 (top wall).
+      // Internal: center.x = 0, center.y = FIELD_ACTUAL_HALF - PZ_HEIGHT/2 = 61.785
+      center: { x: 0, y: FIELD_ACTUAL_HALF - PZ_HEIGHT / 2 },
+      width: PZ_WIDTH,
+      height: PZ_HEIGHT,
+      innerInset: PZ_INNER_INSET,
       placement: {
-        confidence: 'approximate',
-        source: 'Park Zone Specifications (L geometry verified).',
-        note: 'Corner assignment is approximate; dimensions are verified.',
+        confidence: 'verified',
+        source: 'Park Zone Specifications. User coords: x=60.77..79.64, y=123.57..140.43. Wall-to-wall=140.43".',
+        note: 'Blue = top wall. Width=18.87" (x span), Height=16.86" (into field). Inner layer 2" inset on 3 exposed sides.',
       },
     },
     {
       id: 'park-red',
       alliance: 'red',
-      corner: 'bottom-right',
-      armAlongX: PZ_ALONG_X,
-      armAlongY: PZ_ALONG_Y,
-      stripWidth: PZ_STRIP,
+      // User coords: x=60.77..79.64, y=0..16.86 (bottom wall).
+      // Internal: center.x = 0, center.y = -(FIELD_ACTUAL_HALF - PZ_HEIGHT/2) = -61.785
+      center: { x: 0, y: -(FIELD_ACTUAL_HALF - PZ_HEIGHT / 2) },
+      width: PZ_WIDTH,
+      height: PZ_HEIGHT,
+      innerInset: PZ_INNER_INSET,
       placement: {
-        confidence: 'approximate',
-        source: 'Park Zone Specifications (L geometry verified).',
-        note: 'Corner assignment is approximate; dimensions are verified.',
+        confidence: 'verified',
+        source: 'Park Zone Specifications. User coords: x=60.77..79.64, y=0..16.86. Wall-to-wall=140.43".',
+        note: 'Red = bottom wall. Width=18.87" (x span), Height=16.86" (into field). Inner layer 2" inset on 3 exposed sides.',
       },
     },
   ],

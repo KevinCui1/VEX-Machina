@@ -26,7 +26,7 @@
   stroke-width: 0.35;
 }
 
-/* ── Coordinate grid labels ──────────────────────────────────────────────── */
+/* ── Coordinate grid labels + toggleable grid lines ─────────────────────── */
 .fv-grid-tick {
   stroke: rgba(100, 120, 150, 0.45);
   stroke-width: 0.35;
@@ -36,6 +36,12 @@
   font-family: 'Courier New', Courier, monospace;
   font-size: 3px;
   font-weight: 700;
+}
+/* Cross-field lines shown when "Inch Grid" toggle is on */
+.fv-grid-line {
+  stroke: rgba(100, 130, 180, 0.22);
+  stroke-width: 0.3;
+  stroke-dasharray: 2 2;
 }
 
 /* ── Alliance stations ───────────────────────────────────────────────────── */
@@ -57,24 +63,53 @@
   text-anchor: middle;
 }
 
-/* ── Park zones ──────────────────────────────────────────────────────────── */
-.fv-park-fill {
-  opacity: 0.5;
+/* ── Park zones (three-sided frames attached to the wall) ────────────────── */
+
+/* Alliance-coloured fill of the frame band (outer ring minus inner hollow) */
+.fv-park-frame-fill {
+  stroke: none;
 }
-.fv-park.fv-red .fv-park-fill {
-  fill: rgba(200, 60, 60, 0.16);
+.fv-park.fv-red .fv-park-frame-fill {
+  fill: rgba(200, 60, 60, 0.28);
 }
-.fv-park.fv-blue .fv-park-fill {
-  fill: rgba(60, 110, 210, 0.16);
+.fv-park.fv-blue .fv-park-frame-fill {
+  fill: rgba(60, 110, 210, 0.28);
 }
-.fv-park.fv-red .fv-park-strip {
-  fill: #c83c3c;
+
+/* Outer 3-sided border */
+.fv-park-outer-border {
+  fill: none;
+  stroke-width: 0.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
-.fv-park.fv-blue .fv-park-strip {
-  fill: #3a6edc;
+.fv-park.fv-red .fv-park-outer-border {
+  stroke: rgba(210, 65, 65, 0.92);
 }
-.fv-park-strip {
-  opacity: 0.85;
+.fv-park.fv-blue .fv-park-outer-border {
+  stroke: rgba(55, 115, 220, 0.92);
+}
+
+/* Inner 3-sided border */
+.fv-park-inner-border {
+  fill: none;
+  stroke-width: 0.55;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.fv-park.fv-red .fv-park-inner-border {
+  stroke: rgba(210, 65, 65, 0.62);
+}
+.fv-park.fv-blue .fv-park-inner-border {
+  stroke: rgba(55, 115, 220, 0.62);
+}
+
+/* Black rounded corner accent pieces */
+.fv-park-corner {
+  fill: none;
+  stroke: rgba(12, 12, 12, 0.80);
+  stroke-width: 1.5;
+  stroke-linecap: round;
 }
 
 /* ── Tape lines (autonomous line) ────────────────────────────────────────── */

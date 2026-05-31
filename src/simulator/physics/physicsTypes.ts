@@ -15,7 +15,12 @@ export interface PhysicsBlock {
   y: number    // field inches, center
   vx: number   // velocity x, inches/sec
   vy: number   // velocity y, inches/sec
-  state: 'field' | 'held'  // 'held' = attached to robot, skips collision and friction
+  /**
+   * 'field'  — loose on the floor; full physics apply.
+   * 'held'   — attached to robot; carried each frame, skips all collision.
+   * 'loader' — stored in a wall loader; immune to all physics until dispensed.
+   */
+  state: 'field' | 'held' | 'loader'
 }
 
 // Physical block size: 3.23" flat-to-flat (verified from Block Specifications).

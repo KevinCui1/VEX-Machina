@@ -44,11 +44,25 @@ export function resolveBlockBlock(a: PhysicsBlock, b: PhysicsBlock): void {
   const dist2 = dx * dx + dy * dy
   const minDist = BLOCK_RADIUS * 2
 
-  if (dist2 >= minDist * minDist || dist2 < 1e-8) return
+  if (dist2 >= minDist * minDist) return
 
-  const dist = Math.sqrt(dist2)
-  const nx = dx / dist
-  const ny = dy / dist
+  let dist: number, nx: number, ny: number
+
+  if (dist2 < 1e-6) {
+    // Near-coincident: the separation axis is undefined, so derive a stable
+    // spread direction from the block IDs. This ensures coincident blocks
+    // always push apart consistently rather than staying permanently merged.
+    const h = (a.id.charCodeAt(a.id.length - 1) * 73 +
+               b.id.charCodeAt(b.id.length - 1) * 37) % 628
+    const angle = h * 0.01  // maps 0–627 → 0–6.27 rad (full circle)
+    nx = Math.cos(angle)
+    ny = Math.sin(angle)
+    dist = 0
+  } else {
+    dist = Math.sqrt(dist2)
+    nx = dx / dist
+    ny = dy / dist
+  }
 
   // Push overlapping pair apart symmetrically.
   const half = (minDist - dist) * 0.5
@@ -62,6 +76,68 @@ export function resolveBlockBlock(a: PhysicsBlock, b: PhysicsBlock): void {
   const j = -(1 + RESTITUTION_BLOCK) * relVn * 0.5
   a.vx -= j * nx;  a.vy -= j * ny
   b.vx += j * nx;  b.vy += j * ny
+}
+
+// ─── Robot OBB vs. axis-aligned goal rectangle (SAT) ────────────────────────
+//
+// The long goals are axis-aligned rectangles (vertical bars) in field space.
+// The robot is an OBB that can be at any heading. We use the 4-axis Separating
+// Axis Theorem (world X, world Y, robot local X, robot local Y) to find the
+// minimum penetration depth and push the robot out along that axis.
+//
+// Returns the corrected robot position, or null if there is no collision.
+
+export function resolveRobotGoalAABB(
+  rx: number, ry: number, heading: number,
+  goalCx: number, goalCy: number, goalHalfW: number, goalHalfH: number,
+): { x: number; y: number } | null {
+  const rad  = (heading * Math.PI) / 180
+  const cosH = Math.cos(rad)
+  const sinH = Math.sin(rad)
+
+  // Vector from goal center to robot center.
+  const dx = rx - goalCx
+  const dy = ry - goalCy
+
+  let minOverlap = Infinity
+  let pushNx = 0, pushNy = 0, pushSign = 1
+
+  // Each axis: {nx,ny} is the unit normal; ra = robot projection; ga = goal projection.
+  const axes = [
+    // World X
+    { nx: 1, ny: 0,
+      ra: Math.abs(cosH) * RHW + Math.abs(sinH) * RHH,
+      ga: goalHalfW },
+    // World Y
+    { nx: 0, ny: 1,
+      ra: Math.abs(sinH) * RHW + Math.abs(cosH) * RHH,
+      ga: goalHalfH },
+    // Robot local X (forward)
+    { nx: cosH, ny: sinH,
+      ra: RHW,
+      ga: Math.abs(cosH) * goalHalfW + Math.abs(sinH) * goalHalfH },
+    // Robot local Y (lateral)
+    { nx: -sinH, ny: cosH,
+      ra: RHH,
+      ga: Math.abs(sinH) * goalHalfW + Math.abs(cosH) * goalHalfH },
+  ]
+
+  for (const { nx, ny, ra, ga } of axes) {
+    const proj    = dx * nx + dy * ny
+    const overlap = ra + ga - Math.abs(proj)
+    if (overlap <= 0) return null  // separating axis found — no collision
+    if (overlap < minOverlap) {
+      minOverlap = overlap
+      pushNx   = nx
+      pushNy   = ny
+      pushSign = proj >= 0 ? 1 : -1
+    }
+  }
+
+  return {
+    x: rx + pushSign * pushNx * minOverlap,
+    y: ry + pushSign * pushNy * minOverlap,
+  }
 }
 
 // ─── Robot OBB vs. block circle ───────────────────────────────────────────────

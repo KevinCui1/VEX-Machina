@@ -38,7 +38,7 @@ import type { RobotState } from '../robot/robotTypes'
 import { makeTestBlocks } from './testLayout'
 import type { PhysicsBlock } from './physicsTypes'
 import { BLOCK_RADIUS } from './physicsTypes'
-import { resolveBlockBlock, resolveBlockWall, resolveRobotBlock } from './collision'
+import { resolveBlockBlock, resolveBlockWall, resolveRobotBlock, resolveRobotGoalAABB } from './collision'
 
 // Robot center boundary: keep the body fully inside the field.
 const BOUND = FIELD_HALF - ROBOT_HALF  // 65"
@@ -57,6 +57,36 @@ const RHW = ROBOT_W / 2   // 7"
 
 // Field interior limit for clamping released-block positions.
 const FIELD_INNER = FIELD_HALF - BLOCK_RADIUS
+
+// Long Goal AABB colliders — must match pushBackField.ts (LG_X_OFFSET=46, LG_DEPTH=5.4, LG_TOTAL=48.79).
+// Goals are vertical: half-width along X = depth/2, half-height along Y = length/2.
+const LONG_GOAL_COLLIDERS = [
+  { cx: -48, cy: 0, hw: 2.7, hh: 24.395 },
+  { cx:  48, cy: 0, hw: 2.7, hh: 24.395 },
+] as const
+
+// Loader AABB colliders — match pushBackField.ts (LOADER_X_OFFSET=54, LOADER_W=6, LOADER_D=5, HALF=72).
+// Loaders sit at the top/bottom field edges (y=±72). hw = width/2, hh = depth/2.
+const LOADER_COLLIDERS = [
+  { cx: -54, cy:  72, hw: 3, hh: 2.5 },
+  { cx:  54, cy:  72, hw: 3, hh: 2.5 },
+  { cx: -54, cy: -72, hw: 3, hh: 2.5 },
+  { cx:  54, cy: -72, hw: 3, hh: 2.5 },
+] as const
+
+// Park Zone "speed bump" constants — robot slows briefly as each axle crosses the
+// inner boundary tape line of a Park Zone (simulates bumping over the raised edge).
+// Coordinates match pushBackField.ts: FIELD_ACTUAL_HALF=70.215, PZ_HEIGHT=16.86, PZ_WIDTH=18.87.
+const PZ_INNER_Y      = 70.215 - 16.86           // 53.355" — inner boundary (field-facing edge)
+const PZ_X_HALF       = 18.87 / 2                // 9.435"  — park zone half-width
+const PZ_X_TRIGGER    = PZ_X_HALF + ROBOT_HALF   // 16.435" — X gate for horizontal border checks
+// Horizontal border thresholds (|y|): front/rear axle crossing the inner tape line
+const PZ_THRESH_NEAR  = PZ_INNER_Y - ROBOT_HALF  // 46.355" — front axle at inner tape
+const PZ_THRESH_FAR   = PZ_INNER_Y + ROBOT_HALF  // 60.355" — rear axle at inner tape
+// Vertical border thresholds (|x|): front/rear axle crossing the side tape lines
+const PZ_X_THRESH_NEAR = PZ_X_HALF - ROBOT_HALF  //  2.435" — front axle at vertical tape
+const PZ_X_THRESH_FAR  = PZ_X_HALF + ROBOT_HALF  // 16.435" — rear axle at vertical tape
+const PZ_STUCK_MS     = 200
 
 // Held-block interior physics constants.
 const HELD_FRICTION     = 150   // inches / sec² — higher than field friction
@@ -94,13 +124,19 @@ export function usePhysics(
   const keysRef    = useRef<Set<string>>(new Set())
 
   // ── Intake refs ───────────────────────────────────────────────────────────
-  const heldIdsRef          = useRef<string[]>([])
-  const mouseDownRef        = useRef(false)
-  const lastOuttakeTimeRef  = useRef<number>(Number.NEGATIVE_INFINITY)
+  const heldIdsRef              = useRef<string[]>([])
+  const mouseDownRef            = useRef(false)
+  const lastOuttakeTimeRef      = useRef<number>(Number.NEGATIVE_INFINITY)
+  const lastLoaderDispenseRef   = useRef<number>(Number.NEGATIVE_INFINITY)
 
   // ── Previous robot velocity — used to compute inertial delta for held blocks
   const prevRobotVxRef = useRef(0)
   const prevRobotVyRef = useRef(0)
+
+  // ── Park Zone crossing state ──────────────────────────────────────────────
+  const parkZoneStuckUntilRef = useRef(0)
+  const prevRobotYForPZRef    = useRef(DEFAULT_ROBOT.y)
+  const prevRobotXForPZRef    = useRef(DEFAULT_ROBOT.x)
 
   // ── React state — written by rAF loop, read by renderer ───────────────────
   const [renderState, setRenderState] = useState<{
@@ -121,7 +157,11 @@ export function usePhysics(
   // ── Scene reset ───────────────────────────────────────────────────────────
   const resetScene = useCallback(() => {
     heldIdsRef.current = []
-    lastOuttakeTimeRef.current = Number.NEGATIVE_INFINITY
+    lastOuttakeTimeRef.current    = Number.NEGATIVE_INFINITY
+    lastLoaderDispenseRef.current = Number.NEGATIVE_INFINITY
+    parkZoneStuckUntilRef.current = 0
+    prevRobotYForPZRef.current    = DEFAULT_ROBOT.y
+    prevRobotXForPZRef.current    = DEFAULT_ROBOT.x
     const freshRobot  = { ...DEFAULT_ROBOT }
     const freshBlocks = makeTestBlocks()
     robotRef.current  = freshRobot
@@ -204,13 +244,17 @@ export function usePhysics(
       const turn = (keys.has('a') || keys.has('arrowleft')  ? 1 : 0)
                  - (keys.has('d') || keys.has('arrowright') ? 1 : 0)
 
-      const r      = robotRef.current
-      const newHdg = r.heading + turn * turnRateRef.current * dt
+      const r = robotRef.current
+
+      // Park Zone speed multiplier — briefly applied when an axle crosses the tape.
+      const speedMult = now < parkZoneStuckUntilRef.current ? 0.05 : 1.0
+
+      const newHdg = r.heading + turn * turnRateRef.current * speedMult * dt
       const rad    = (newHdg * Math.PI) / 180
       const cosH   = Math.cos(rad)
       const sinH   = Math.sin(rad)
-      const robotVx = fwd * moveSpeedRef.current * cosH
-      const robotVy = fwd * moveSpeedRef.current * sinH
+      const robotVx = fwd * moveSpeedRef.current * speedMult * cosH
+      const robotVy = fwd * moveSpeedRef.current * speedMult * sinH
 
       // Compute velocity delta (used for held-block inertia, see step 3).
       const dvx = robotVx - prevRobotVxRef.current
@@ -218,8 +262,64 @@ export function usePhysics(
       prevRobotVxRef.current = robotVx
       prevRobotVyRef.current = robotVy
 
-      const newX = Math.max(-BOUND, Math.min(BOUND, r.x + robotVx * dt))
-      const newY = Math.max(-BOUND, Math.min(BOUND, r.y + robotVy * dt))
+      let newX = Math.max(-BOUND, Math.min(BOUND, r.x + robotVx * dt))
+      let newY = Math.max(-BOUND, Math.min(BOUND, r.y + robotVy * dt))
+
+      // Resolve robot against solid long goals and solid loaders (run twice for corner stability).
+      for (let gi = 0; gi < 2; gi++) {
+        for (const g of LONG_GOAL_COLLIDERS) {
+          const res = resolveRobotGoalAABB(newX, newY, newHdg, g.cx, g.cy, g.hw, g.hh)
+          if (res) {
+            newX = Math.max(-BOUND, Math.min(BOUND, res.x))
+            newY = Math.max(-BOUND, Math.min(BOUND, res.y))
+          }
+        }
+        for (const l of LOADER_COLLIDERS) {
+          const res = resolveRobotGoalAABB(newX, newY, newHdg, l.cx, l.cy, l.hw, l.hh)
+          if (res) {
+            newX = Math.max(-BOUND, Math.min(BOUND, res.x))
+            newY = Math.max(-BOUND, Math.min(BOUND, res.y))
+          }
+        }
+      }
+
+      // Detect Park Zone axle-crossing events and set the stuck timer.
+      // |y| and |x| symmetry handles both red and blue zones with the same constants.
+      // The guard (now >= stuckUntil) prevents re-triggering mid-stuck.
+      if (now >= parkZoneStuckUntilRef.current) {
+        const absY     = Math.abs(newY)
+        const absPrevY = Math.abs(prevRobotYForPZRef.current)
+        const absX     = Math.abs(newX)
+        const absPrevX = Math.abs(prevRobotXForPZRef.current)
+
+        // Horizontal borders (inner tape line running along X): Y-axis crossings.
+        if (absX < PZ_X_TRIGGER) {
+          if (
+            (absPrevY < PZ_THRESH_NEAR && absY >= PZ_THRESH_NEAR) ||
+            (absPrevY > PZ_THRESH_NEAR && absY <= PZ_THRESH_NEAR) ||
+            (absPrevY < PZ_THRESH_FAR  && absY >= PZ_THRESH_FAR ) ||
+            (absPrevY > PZ_THRESH_FAR  && absY <= PZ_THRESH_FAR )
+          ) {
+            parkZoneStuckUntilRef.current = now + PZ_STUCK_MS
+          }
+        }
+
+        // Vertical borders (side tape lines running along Y): X-axis crossings.
+        // Only applies when the robot is inside the park zone's Y band.
+        if (absY > PZ_THRESH_NEAR) {
+          if (
+            (absPrevX < PZ_X_THRESH_NEAR && absX >= PZ_X_THRESH_NEAR) ||
+            (absPrevX > PZ_X_THRESH_NEAR && absX <= PZ_X_THRESH_NEAR) ||
+            (absPrevX < PZ_X_THRESH_FAR  && absX >= PZ_X_THRESH_FAR ) ||
+            (absPrevX > PZ_X_THRESH_FAR  && absX <= PZ_X_THRESH_FAR )
+          ) {
+            parkZoneStuckUntilRef.current = now + PZ_STUCK_MS
+          }
+        }
+      }
+      prevRobotYForPZRef.current = newY
+      prevRobotXForPZRef.current = newX
+
       robotRef.current = { ...r, x: newX, y: newY, heading: newHdg }
 
       const rob = robotRef.current
@@ -265,6 +365,35 @@ export function usePhysics(
           if (inZoneX && inZoneY) {
             b.state = 'held'
             heldIdsRef.current = [...heldIdsRef.current, b.id]
+          }
+        }
+      }
+
+      // ── 2b. Loader dispense — one ball per 100 ms, same rate as outtake ───
+      // Iterates in reverse so higher-index (blue/top) balls come out first.
+      // The intake zone check is identical to regular pickup; the robot must
+      // face and position itself at the loader mouth to trigger dispensing.
+      if (intakeActive && heldIdsRef.current.length < capacityRef.current) {
+        if (now - lastLoaderDispenseRef.current >= 100) {
+          for (let i = blocksRef.current.length - 1; i >= 0; i--) {
+            const b = blocksRef.current[i]
+            if (b.state !== 'loader') continue
+
+            const wx = b.x - rob.x
+            const wy = b.y - rob.y
+            const localX =  wx * cosH + wy * sinH
+            const localY = -wx * sinH + wy * cosH
+
+            const inZoneX = localX > (RHW - INTAKE_FRONT_OFFSET) &&
+                            localX < (RHW + RAKE_REACH + BLOCK_RADIUS)
+            const inZoneY = Math.abs(localY) < INTAKE_HALF_H
+
+            if (inZoneX && inZoneY) {
+              b.state = 'held'
+              heldIdsRef.current = [...heldIdsRef.current, b.id]
+              lastLoaderDispenseRef.current = now
+              break  // one ball per interval
+            }
           }
         }
       }
@@ -345,10 +474,10 @@ export function usePhysics(
         for (const b of heldBlocks) clampToRobot(b)
       }
 
-      // ── 4. Integrate velocities + friction (field blocks only) ───────────
+      // ── 4. Integrate velocities + friction ('field' blocks only) ───────────
       const blocks = blocksRef.current
       for (const b of blocks) {
-        if (b.state === 'held') continue
+        if (b.state !== 'field') continue  // skip 'held' and 'loader'
 
         b.x += b.vx * dt
         b.y += b.vy * dt
@@ -365,22 +494,69 @@ export function usePhysics(
         }
       }
 
-      // ── 5. Collision resolution (field blocks only, multiple iterations) ──
+      // ── 5. Collision resolution ('field' blocks only, multiple iterations) ─
+      // 'loader' blocks are immune — they cannot be pushed by the robot or other
+      // blocks, and they are not wall-clamped (they sit just past the clamp limit).
       for (let iter = 0; iter < ITERS; iter++) {
         for (const b of blocks) {
-          if (b.state !== 'held') resolveBlockWall(b)
+          if (b.state === 'field') resolveBlockWall(b)
         }
         for (const b of blocks) {
-          if (b.state !== 'held') resolveRobotBlock(rob.x, rob.y, rob.heading, robotVx, robotVy, b)
+          if (b.state === 'field') resolveRobotBlock(rob.x, rob.y, rob.heading, robotVx, robotVy, b)
         }
         for (let i = 0; i < blocks.length - 1; i++) {
           for (let j = i + 1; j < blocks.length; j++) {
-            if (blocks[i].state === 'held' || blocks[j].state === 'held') continue
+            if (blocks[i].state !== 'field' || blocks[j].state !== 'field') continue
             resolveBlockBlock(blocks[i], blocks[j])
           }
         }
         for (const b of blocks) {
-          if (b.state !== 'held') resolveBlockWall(b)
+          if (b.state === 'field') resolveBlockWall(b)
+        }
+      }
+
+      // ── 5b. Stacked-block dispersal ──────────────────────────────────────────
+      // resolveBlockBlock fixes positional overlap, but when stacked blocks share
+      // nearly the same velocity (e.g. pushed together by the robot or outtaked at
+      // the same point), they continue traveling as a clump even after being pushed
+      // apart positionally. This pass detects deeply-overlapping moving pairs and
+      // adds a minimum relative separating speed so they fan out immediately.
+      for (let i = 0; i < blocks.length - 1; i++) {
+        const a = blocks[i]
+        if (a.state !== 'field') continue
+        for (let j = i + 1; j < blocks.length; j++) {
+          const b = blocks[j]
+          if (b.state !== 'field') continue
+
+          const ddx = b.x - a.x
+          const ddy = b.y - a.y
+          const dd2 = ddx * ddx + ddy * ddy
+          // Only act when blocks are significantly overlapping (more than half-radius).
+          if (dd2 >= BLOCK_RADIUS * BLOCK_RADIUS) continue
+
+          // Skip stationary pairs — compression at rest is fine.
+          if (Math.hypot(a.vx, a.vy) + Math.hypot(b.vx, b.vy) < REST_SPEED * 2) continue
+
+          const dd = Math.sqrt(dd2)
+          let snx: number, sny: number
+          if (dd < 1e-3) {
+            const h = (a.id.charCodeAt(a.id.length - 1) * 73 +
+                       b.id.charCodeAt(b.id.length - 1) * 37) % 628
+            snx = Math.cos(h * 0.01)
+            sny = Math.sin(h * 0.01)
+          } else {
+            snx = ddx / dd
+            sny = ddy / dd
+          }
+
+          // Ensure at least this much relative separating speed along the axis.
+          const MIN_SEP = 15  // in/s
+          const rvn = (b.vx - a.vx) * snx + (b.vy - a.vy) * sny
+          if (rvn < MIN_SEP) {
+            const kick = (MIN_SEP - rvn) * 0.5
+            a.vx -= snx * kick;  a.vy -= sny * kick
+            b.vx += snx * kick;  b.vy += sny * kick
+          }
         }
       }
 

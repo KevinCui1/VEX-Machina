@@ -28,7 +28,7 @@ import './FieldView.css'
 interface FieldViewProps {
   field: GameField
   showDebug: boolean
-  showLabels: boolean
+  showGrid: boolean
   robot: RobotState
   showRobotDebug: boolean
   physicsBlocks: PhysicsBlock[]
@@ -39,7 +39,7 @@ interface FieldViewProps {
 const MARGIN = 2
 
 export default function FieldView({
-  field, showDebug, showLabels, robot, showRobotDebug,
+  field, showDebug, showGrid, robot, showRobotDebug,
   physicsBlocks, intakeActive, heldIds,
 }: FieldViewProps) {
   // Compute each held block's robot-local position so RobotLayer can render
@@ -61,6 +61,7 @@ export default function FieldView({
     })
   const { shell } = field
   const half = shell.nominalInteriorSize / 2
+  const fieldActualHalf = shell.wallToWall / 2
   const vb = fieldViewBox(shell.nominalInteriorSize, MARGIN)
 
   return (
@@ -98,9 +99,9 @@ export default function FieldView({
 
       <FoamFloor half={half} tiles={shell.tilesPerSide} tileSize={shell.tileSize} />
 
-      <CoordGrid half={half} tileSize={shell.tileSize} wallThickness={shell.wallThickness} />
+      <CoordGrid half={half} fieldActualHalf={fieldActualHalf} wallThickness={shell.wallThickness} showGrid={showGrid} />
 
-      <ParkZones zones={field.parkZones} />
+      <ParkZones zones={field.parkZones} half={half} />
 
       <TapeLines lines={field.tapeLines} />
 
@@ -110,7 +111,6 @@ export default function FieldView({
 
       <Loaders loaders={field.loaders} />
 
-      {showLabels && <Labels field={field} />}
 
       {/* Step 4: Physics blocks */}
       <PhysicsBlockLayer blocks={physicsBlocks} showDebug={showDebug} />
@@ -165,36 +165,73 @@ function FoamFloor({ half, tiles, tileSize }: { half: number; tiles: number; til
 }
 
 // ─── Coordinate grid ─────────────────────────────────────────────────────────
+//
+// Labels use the user coordinate system: (0,0) = bottom-left usable corner,
+// (wallToWall, wallToWall) = top-right usable corner.
+// Internal ↔ user conversion: internal = user − fieldActualHalf.
+//
+// The cross-field grid lines are toggled by `showGrid`; the edge ticks and
+// labels are always shown so the user can read inch positions at a glance.
 
-function CoordGrid({ half, tileSize, wallThickness }: { half: number; tileSize: number; wallThickness: number }) {
-  const positions: number[] = []
-  for (let v = -half; v <= half + 0.001; v += tileSize) positions.push(Math.round(v))
+function CoordGrid({
+  half, fieldActualHalf, wallThickness, showGrid,
+}: {
+  half: number; fieldActualHalf: number; wallThickness: number; showGrid: boolean
+}) {
+  const fieldSize = fieldActualHalf * 2  // 140.43
 
-  // Ticks start at the field interior edge and poke through the wall into the margin.
+  // Grid positions in user-space (0, 24, 48 … 120, then the actual wall edge).
+  const STEP = 24
+  const userPositions: number[] = []
+  for (let u = 0; u < fieldSize - 0.5; u += STEP) userPositions.push(Math.round(u))
+  userPositions.push(Math.round(fieldSize * 100) / 100)  // 140.43 at the wall
+
+  // Convert a user coordinate to the internal (center-origin) value.
+  const fi = (u: number) => u - fieldActualHalf
+
   const wallOuter = half + wallThickness
-  const tickEnd = wallOuter + 1.5
+  const tickEnd   = wallOuter + 1.5
   const labelDist = wallOuter + 5.5
 
   return (
     <g className="fv-coord-grid" pointerEvents="none">
-      {/* X labels along the bottom edge */}
-      {positions.map((v) => (
-        <g key={`cgx${v}`}>
-          <line x1={v} y1={half} x2={v} y2={tickEnd} className="fv-grid-tick" />
-          <text x={v} y={labelDist} className="fv-grid-label" dominantBaseline="middle" textAnchor="middle">
-            {v}"
-          </text>
-        </g>
-      ))}
-      {/* Y labels along the left edge (field +Y up, so field y = -SVG y) */}
-      {positions.map((v) => (
-        <g key={`cgy${v}`}>
-          <line x1={-half} y1={-v} x2={-tickEnd} y2={-v} className="fv-grid-tick" />
-          <text x={-labelDist} y={-v} className="fv-grid-label" dominantBaseline="middle" textAnchor="middle">
-            {v}"
-          </text>
-        </g>
-      ))}
+
+      {/* Toggleable cross-field grid lines */}
+      {showGrid && userPositions.map((u) => {
+        const ix = fi(u)
+        return (
+          <Fragment key={`gl${u}`}>
+            <line x1={ix}   y1={-half} x2={ix}  y2={half}  className="fv-grid-line" />
+            <line x1={-half} y1={-ix}  x2={half} y2={-ix}  className="fv-grid-line" />
+          </Fragment>
+        )
+      })}
+
+      {/* X-axis tick marks + labels along the bottom edge (user coords) */}
+      {userPositions.map((u) => {
+        const ix = fi(u)
+        return (
+          <g key={`cgx${u}`}>
+            <line x1={ix} y1={half} x2={ix} y2={tickEnd} className="fv-grid-tick" />
+            <text x={ix} y={labelDist} className="fv-grid-label" dominantBaseline="middle" textAnchor="middle">
+              {u}"
+            </text>
+          </g>
+        )
+      })}
+
+      {/* Y-axis tick marks + labels along the left edge (user coords, +Y up) */}
+      {userPositions.map((u) => {
+        const ix = fi(u)
+        return (
+          <g key={`cgy${u}`}>
+            <line x1={-half} y1={-ix} x2={-tickEnd} y2={-ix} className="fv-grid-tick" />
+            <text x={-labelDist} y={-ix} className="fv-grid-label" dominantBaseline="middle" textAnchor="middle">
+              {u}"
+            </text>
+          </g>
+        )
+      })}
     </g>
   )
 }
@@ -211,15 +248,103 @@ function Perimeter({ half, thickness }: { half: number; thickness: number }) {
   )
 }
 
-// ─── Park zones (L-shaped corner bands) ──────────────────────────────────────
+// ─── Park zones ──────────────────────────────────────────────────────────────
+//
+// Each park zone is a three-sided frame attached to the field wall — two
+// vertical arms extending into the field plus a horizontal connecting piece.
+// The wall-facing edge is deliberately open (no fourth side drawn).
+//
+// Geometry (using Red zone at the bottom wall as the reference):
+//
+//     lx        lx+r   rx-r      rx
+//      |          _______|_______          |
+//      |         /               \         |   ← rounded corners, r=2"
+//      |        |                 |        |   ← horizontal top at depth=16.86"
+//      | (arm)  |                 | (arm)  |   ← corner arcs drawn in black
+//      |        |                 |        |
+//      |  (14.86" straight arm)   |        |
+//      |                          |        |
+//  [===+==========================+=========] ← WALL (no line drawn here)
+//
+// Inner layer: same shape inset 2" on the three visible sides.
 
-function ParkZones({ zones }: { zones: ParkZone[] }) {
+function ParkZones({ zones, half }: { zones: ParkZone[]; half: number }) {
   return (
     <g className="fv-parkzones">
       {zones.map((z) => {
-        // Corner sign: which way the arms extend from the corner.
+        const c = toSvg(z.center)
+
+        // Red = bottom wall (high SVG y), Blue = top wall (low SVG y).
+        const wallAtBottom = z.alliance === 'red'
+        const wallDir = wallAtBottom ? 1 : -1
+
+        const lx = c.x - z.width / 2   // left outer x
+        const rx = c.x + z.width / 2   // right outer x
+        // Use the nominal interior half (visual wall edge) so arms reach the wall.
+        const wallSvgY = wallAtBottom ? half : -half
+
+        const inset = z.innerInset ?? 0
+        const r = inset                             // corner radius = 2"
+        const armLen = z.height - r                 // straight arm depth = 14.86"
+        const armEndSvgY = wallSvgY - wallDir * armLen
+        const topSvgY    = wallSvgY - wallDir * z.height
+
+        // Both corners on the same alliance use the same sweep flag.
+        // Cross-product of radius vectors (CA×CB) for both corners yields +4 for
+        // Red and -4 for Blue → CW (1) for Red, CCW (0) for Blue.
+        const sweep      = wallAtBottom ? 1 : 0
+        const leftSweep  = sweep
+        const rightSweep = sweep
+
+        // ── Outer 3-sided path (open at wall edge) ──────────────────────
+        const outerPath = [
+          `M ${lx} ${wallSvgY}`,
+          `L ${lx} ${armEndSvgY}`,
+          `A ${r} ${r} 0 0 ${leftSweep} ${lx + r} ${topSvgY}`,
+          `L ${rx - r} ${topSvgY}`,
+          `A ${r} ${r} 0 0 ${rightSweep} ${rx} ${armEndSvgY}`,
+          `L ${rx} ${wallSvgY}`,
+        ].join(' ')
+
+        // ── Inner 3-sided path (open at wall, no rounded corners) ────────
+        const innerLx      = lx + inset
+        const innerRx      = rx - inset
+        const innerTopSvgY = armEndSvgY  // inner depth = outer arm end = 14.86"
+
+        const innerPath = [
+          `M ${innerLx} ${wallSvgY}`,
+          `L ${innerLx} ${innerTopSvgY}`,
+          `L ${innerRx} ${innerTopSvgY}`,
+          `L ${innerRx} ${wallSvgY}`,
+        ].join(' ')
+
+        // ── Frame fill (evenodd ring = only the band between outer and inner) ──
+        // Both sub-paths close at the wall edge; the inner sub-path "punches
+        // out" the hollow center via the evenodd fill rule.
+        const frameFill = `${outerPath} Z ${innerPath} Z`
+
+        // ── Corner accent arcs (same geometry as outer arcs, drawn in black) ──
+        // Both accent arcs must start from the same endpoint the outer path uses
+        // for that arc segment, so the sweep flag draws the same physical curve.
+        const leftArc  = `M ${lx} ${armEndSvgY} A ${r} ${r} 0 0 ${leftSweep} ${lx + r} ${topSvgY}`
+        const rightArc = `M ${rx - r} ${topSvgY} A ${r} ${r} 0 0 ${rightSweep} ${rx} ${armEndSvgY}`
+
         return (
-          <g key={z.id} className={`fv-park fv-${z.alliance}`} />
+          <g key={z.id} className={`fv-park fv-${z.alliance}`}>
+            {/* Alliance-coloured fill of the frame band only */}
+            <path d={frameFill} fillRule="evenodd" className="fv-park-frame-fill" />
+            {/* Outer 3-sided border */}
+            <path d={outerPath} className="fv-park-outer-border" />
+            {/* Inner 3-sided border */}
+            {inset > 0 && <path d={innerPath} className="fv-park-inner-border" />}
+            {/* Black rounded corner accent pieces */}
+            {inset > 0 && (
+              <>
+                <path d={leftArc}  className="fv-park-corner" />
+                <path d={rightArc} className="fv-park-corner" />
+              </>
+            )}
+          </g>
         )
       })}
     </g>
@@ -330,29 +455,6 @@ function Loaders({ loaders }: { loaders: Loader[] }) {
           </g>
         )
       })}
-    </g>
-  )
-}
-
-// ─── Orientation labels ──────────────────────────────────────────────────────
-
-function Labels({ field }: { field: GameField }) {
-  const labelFor = (id: string, center: Vec2, text: string) => {
-    const c = toSvg(center)
-    return (
-      <text key={id} x={c.x} y={c.y} className="fv-elem-label" dominantBaseline="middle">
-        {text}
-      </text>
-    )
-  }
-  return (
-    <g className="fv-labels" pointerEvents="none">
-      {field.longGoals.map((g) => labelFor(g.id, g.center, 'LONG GOAL'))}
-      {field.centerGoals.map((g, i) =>
-        // offset the two stacked center-goal labels so they don't overlap
-        labelFor(g.id, { x: g.center.x, y: g.center.y + (i === 0 ? 4 : -4) }, `${g.label} CENTER`),
-      )}
-      {field.loaders.map((l) => labelFor(l.id, { x: l.center.x, y: l.center.y }, 'LOADER'))}
     </g>
   )
 }
