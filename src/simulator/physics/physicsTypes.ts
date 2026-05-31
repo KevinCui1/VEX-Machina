@@ -19,8 +19,12 @@ export interface PhysicsBlock {
    * 'field'  — loose on the floor; full physics apply.
    * 'held'   — attached to robot; carried each frame, skips all collision.
    * 'loader' — stored in a wall loader; immune to all physics until dispensed.
+   * 'goal'   — inside a long goal channel; confined to goal bounds, can only
+   *             exit through the two open ends. Not intakeable.
    */
-  state: 'field' | 'held' | 'loader'
+  state: 'field' | 'held' | 'loader' | 'goal'
+  /** ID of the long goal this block is inside (only set when state='goal'). */
+  goalId?: string
 }
 
 // Physical block size: 3.23" flat-to-flat (verified from Block Specifications).

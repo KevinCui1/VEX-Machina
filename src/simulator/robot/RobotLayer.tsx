@@ -204,6 +204,13 @@ export default function RobotLayer({
           className={`rl-outline rl-${alliance}`}
         />
 
+        {/* ── Rear outtake channel — two parallel guide lines on the back face.
+              Lines run along the local X axis (perpendicular to the back wall).
+              They span from 4" inside the robot to 1" outside the back face,
+              spaced 3" apart (y = ±1.5), resembling a narrow exit channel. ── */}
+        <line x1={-HW + 4.0} y1={-1.5} x2={-HW - 1.0} y2={-1.5} className="rl-outtake-line" />
+        <line x1={-HW + 4.0} y1={ 1.5} x2={-HW - 1.0} y2={ 1.5} className="rl-outtake-line" />
+
         {/* ── Raised rake — bumper rail on top of chassis (retracted) ────── */}
         {!intakeActive && (
           <rect

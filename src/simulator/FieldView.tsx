@@ -105,15 +105,31 @@ export default function FieldView({
 
       <TapeLines lines={field.tapeLines} />
 
-      <LongGoals goals={field.longGoals} />
+      {/* Field blocks — below lower center goal and under upper center goal */}
+      <PhysicsBlockLayer blocks={physicsBlocks} showDebug={showDebug} mode="field" />
 
-      <CenterGoals goals={field.centerGoals} />
+      {/* Lower center goal — solid, renders above field blocks (balls bounce off it) */}
+      {field.centerGoals.filter(g => !g.allowUnderPassage).map(g => (
+        <SingleCenterGoal key={g.id} goal={g} />
+      ))}
+
+      {/* Upper center goal structure — field balls slide under it, rendered above them */}
+      {field.centerGoals.filter(g => g.allowUnderPassage).map(g => (
+        <SingleCenterGoal key={g.id} goal={g} />
+      ))}
+
+      {/* Blocks scored inside upper center goal — above the upper goal structure */}
+      <PhysicsBlockLayer blocks={physicsBlocks} showDebug={showDebug} mode="center-goal" />
+
+      <LongGoals goals={field.longGoals} />
 
       <Loaders loaders={field.loaders} />
 
+      {/* Loader-state blocks — rendered above loader bodies so the top ball colour is visible */}
+      <PhysicsBlockLayer blocks={physicsBlocks} showDebug={showDebug} mode="loader" />
 
-      {/* Step 4: Physics blocks */}
-      <PhysicsBlockLayer blocks={physicsBlocks} showDebug={showDebug} />
+      {/* Goal-state blocks in long goals — above the long goal structure */}
+      <PhysicsBlockLayer blocks={physicsBlocks} showDebug={showDebug} mode="goal" />
 
       {/* Step 3 + 5: Robot layer — above blocks */}
       <RobotLayer
@@ -381,6 +397,13 @@ function TapeLines({ lines }: { lines: TapeLine[] }) {
 
 // ─── Long goals ──────────────────────────────────────────────────────────────
 
+// Width of the solid white control-zone strips on the long goals.
+const LG_CZ_STRIP_W = 0.9
+
+// Length of the triangular support/guide pieces at each open end of a long goal.
+// Each triangle occupies one corner of the goal end, creating a funnel effect.
+const LG_SUPPORT_TRI_LEN = 5.5
+
 function LongGoals({ goals }: { goals: LongGoal[] }) {
   return (
     <g className="fv-longgoals">
@@ -392,6 +415,7 @@ function LongGoals({ goals }: { goals: LongGoal[] }) {
         const xStart = -L / 2
         const enclosedStart = xStart + g.sections.openStart
         const enclosedEnd = enclosedStart + g.sections.enclosedCenter
+        const xEnd = xStart + L
         return (
           <g key={g.id} transform={`translate(${c.x} ${c.y}) rotate(${rot})`} className="fv-longgoal">
             {/* full glass body */}
@@ -404,9 +428,42 @@ function LongGoals({ goals }: { goals: LongGoal[] }) {
               height={D}
               className="fv-goal-enclosed"
             />
-            {/* section dividers */}
-            <line x1={enclosedStart} y1={-D / 2} x2={enclosedStart} y2={D / 2} className="fv-goal-divider" />
-            <line x1={enclosedEnd} y1={-D / 2} x2={enclosedEnd} y2={D / 2} className="fv-goal-divider" />
+            {/* Triangular support/guide pieces at each open end.
+                Each end gets two mirrored right-triangles (one per corner) that act
+                as a funnel to help the robot self-align when backing into the goal.
+                Triangles are confined entirely within the goal's AABB. */}
+            <polygon
+              points={`${xStart},${-D / 2} ${xStart},0 ${xStart + LG_SUPPORT_TRI_LEN},${-D / 2}`}
+              className="fv-goal-support-tri"
+            />
+            <polygon
+              points={`${xStart},${D / 2} ${xStart},0 ${xStart + LG_SUPPORT_TRI_LEN},${D / 2}`}
+              className="fv-goal-support-tri"
+            />
+            <polygon
+              points={`${xEnd},${-D / 2} ${xEnd},0 ${xEnd - LG_SUPPORT_TRI_LEN},${-D / 2}`}
+              className="fv-goal-support-tri"
+            />
+            <polygon
+              points={`${xEnd},${D / 2} ${xEnd},0 ${xEnd - LG_SUPPORT_TRI_LEN},${D / 2}`}
+              className="fv-goal-support-tri"
+            />
+            {/* Solid white control-zone strips — replaces the old dotted divider lines.
+                Each strip is a narrow rectangle centered on the section boundary. */}
+            <rect
+              x={enclosedStart - LG_CZ_STRIP_W / 2}
+              y={-D / 2}
+              width={LG_CZ_STRIP_W}
+              height={D}
+              className="fv-goal-cz-strip"
+            />
+            <rect
+              x={enclosedEnd - LG_CZ_STRIP_W / 2}
+              y={-D / 2}
+              width={LG_CZ_STRIP_W}
+              height={D}
+              className="fv-goal-cz-strip"
+            />
             {/* outline */}
             <rect x={xStart} y={-D / 2} width={L} height={D} rx={1} className="fv-goal-outline" />
           </g>
@@ -417,21 +474,63 @@ function LongGoals({ goals }: { goals: LongGoal[] }) {
 }
 
 // ─── Center goals ────────────────────────────────────────────────────────────
+//
+// Each center goal is a diagonal oriented rectangle sharing the same design
+// language as the long goals (glass body, outline, optional alignment triangles).
+//
+// Upper center goal (rotation=45°):  positive slope diagonal, wider (5.53"),
+//   alignment triangles at both ends, elevated — rendered in two SVG passes so
+//   field balls appear below it and scored balls appear above it.
+//
+// Lower center goal (rotation=-45°): negative slope diagonal, narrower (4.15"),
+//   no triangles, solid — rendered once, above field balls.
+//
+// Triangle size matches the long goal support triangles for visual consistency.
 
-function CenterGoals({ goals }: { goals: CenterGoal[] }) {
+const CG_TRI_LEN = 5.5   // alignment triangle leg length along the goal axis
+
+function SingleCenterGoal({ goal }: { goal: CenterGoal }) {
+  const c   = toSvg(goal.center)
+  const rot = toSvgRotation(goal.rotation)
+  const L   = goal.length
+  const W   = goal.width
+  const xS  = -L / 2  // SVG local x-start
+  const xE  =  L / 2  // SVG local x-end
+
   return (
-    <g className="fv-centergoals">
-      {goals.map((g) => {
-        const c = toSvg(g.center)
-        const rot = toSvgRotation(g.rotation)
-        const s = g.side
-        return (
-          <g key={g.id} transform={`translate(${c.x} ${c.y}) rotate(${rot})`} className="fv-centergoal">
-            <rect x={-s / 2} y={-s / 2} width={s} height={s} rx={1} className="fv-goal-glass" />
-            <rect x={-s / 2} y={-s / 2} width={s} height={s} rx={1} className="fv-goal-outline" />
-          </g>
-        )
-      })}
+    <g
+      transform={`translate(${c.x} ${c.y}) rotate(${rot})`}
+      className={`fv-centergoal fv-centergoal-${goal.allowUnderPassage ? 'upper' : 'lower'}`}
+    >
+      {/* Full glass body */}
+      <rect x={xS} y={-W / 2} width={L} height={W} rx={1} className="fv-goal-glass" />
+
+      {/* Alignment triangles — upper goal only, same pattern as long goals */}
+      {goal.hasAlignmentTriangles && (
+        <>
+          {/* Left end — two corner triangles */}
+          <polygon
+            points={`${xS},${-W / 2} ${xS},0 ${xS + CG_TRI_LEN},${-W / 2}`}
+            className="fv-goal-support-tri"
+          />
+          <polygon
+            points={`${xS},${W / 2} ${xS},0 ${xS + CG_TRI_LEN},${W / 2}`}
+            className="fv-goal-support-tri"
+          />
+          {/* Right end — two corner triangles */}
+          <polygon
+            points={`${xE},${-W / 2} ${xE},0 ${xE - CG_TRI_LEN},${-W / 2}`}
+            className="fv-goal-support-tri"
+          />
+          <polygon
+            points={`${xE},${W / 2} ${xE},0 ${xE - CG_TRI_LEN},${W / 2}`}
+            className="fv-goal-support-tri"
+          />
+        </>
+      )}
+
+      {/* Outline */}
+      <rect x={xS} y={-W / 2} width={L} height={W} rx={1} className="fv-goal-outline" />
     </g>
   )
 }
@@ -550,7 +649,7 @@ function collectDebugBoxes(field: GameField): DebugBox[] {
     })
   }
   field.longGoals.forEach((g) => push(g.id, g.center, g.length, g.depth, g.rotation))
-  field.centerGoals.forEach((g) => push(g.id, g.center, g.side, g.side, g.rotation))
+  field.centerGoals.forEach((g) => push(g.id, g.center, g.length, g.width, g.rotation))
   field.loaders.forEach((l) => push(l.id, l.center, l.width, l.depth, l.rotation))
   return boxes
 }

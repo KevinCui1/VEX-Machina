@@ -38,7 +38,7 @@ import type { RobotState } from '../robot/robotTypes'
 import { makeTestBlocks } from './testLayout'
 import type { PhysicsBlock } from './physicsTypes'
 import { BLOCK_RADIUS } from './physicsTypes'
-import { resolveBlockBlock, resolveBlockWall, resolveRobotBlock, resolveRobotGoalAABB } from './collision'
+import { resolveBlockBlock, resolveBlockWall, resolveRobotBlock, resolveRobotGoalAABB, resolveRobotGoalOBB, resolveBlockGoalOBB } from './collision'
 
 // Robot center boundary: keep the body fully inside the field.
 const BOUND = FIELD_HALF - ROBOT_HALF  // 65"
@@ -55,15 +55,58 @@ const ITERS = 3
 // Robot half-width used for intake zone check (matches collision.ts RHW).
 const RHW = ROBOT_W / 2   // 7"
 
-// Field interior limit for clamping released-block positions.
-const FIELD_INNER = FIELD_HALF - BLOCK_RADIUS
 
-// Long Goal AABB colliders — must match pushBackField.ts (LG_X_OFFSET=46, LG_DEPTH=5.4, LG_TOTAL=48.79).
+// Long Goal AABB colliders — must match pushBackField.ts (LG_X_OFFSET=48, LG_DEPTH=5.4, LG_TOTAL=48.79).
 // Goals are vertical: half-width along X = depth/2, half-height along Y = length/2.
 const LONG_GOAL_COLLIDERS = [
   { cx: -48, cy: 0, hw: 2.7, hh: 24.395 },
   { cx:  48, cy: 0, hw: 2.7, hh: 24.395 },
 ] as const
+
+// Long Goal channel physics — same dimensions as colliders.
+// Blocks in 'goal' state are confined to these bounds. They can exit only by
+// travelling past the ±hh open ends. Wall friction zeroes vx each frame.
+const LONG_GOAL_PHYSICS = [
+  { id: 'long-goal-left',  cx: -48, cy: 0, hw: 2.7, hh: 24.395 },
+  { id: 'long-goal-right', cx:  48, cy: 0, hw: 2.7, hh: 24.395 },
+] as const
+
+// Returns the goal that contains a given (x,y) point, or null.
+function getGoalAtPoint(x: number, y: number): typeof LONG_GOAL_PHYSICS[number] | null {
+  for (const g of LONG_GOAL_PHYSICS) {
+    if (Math.abs(x - g.cx) <= g.hw && Math.abs(y - g.cy) <= g.hh) return g
+  }
+  return null
+}
+
+// Center Goal OBB colliders — match pushBackField.ts (CG_LENGTH=22.6, widths user-specified).
+// Upper: rotation=45°, length=22.6, width=5.53. Lower: rotation=-45°, width=4.15.
+// Both centered at origin.
+const CG_UPPER_HALF_L = 11.3     // CG_LENGTH / 2
+const CG_UPPER_HALF_W = 2.765    // CG_UPPER_WIDTH / 2
+const CG_LOWER_HALF_L = 11.3
+const CG_LOWER_HALF_W = 2.075    // CG_LOWER_WIDTH / 2
+const CG_UPPER_ROT    = 45       // degrees CCW
+const CG_LOWER_ROT    = -45
+
+// Pre-computed trig for center goal axes (45° diagonal)
+const CG_COS = Math.SQRT1_2      // cos(45°) = sin(45°)
+const CG_SIN = Math.SQRT1_2
+
+// Center Goal physics channels — upper goal only (lower is solid).
+// Blocks inside the upper goal move along the goal's length axis (45° diagonal).
+const CENTER_GOAL_UPPER = {
+  id: 'center-goal-upper', cx: 0, cy: 0,
+  halfL: CG_UPPER_HALF_L, halfW: CG_UPPER_HALF_W,
+  rot: CG_UPPER_ROT,
+} as const
+
+// Returns true when point (px,py) is inside the upper center goal OBB.
+function isInsideUpperCenterGoal(px: number, py: number): boolean {
+  const lx = px * CG_COS + py * CG_SIN   // rotate -45° to goal local frame
+  const ly = -px * CG_SIN + py * CG_COS
+  return Math.abs(lx) <= CG_UPPER_HALF_L && Math.abs(ly) <= CG_UPPER_HALF_W
+}
 
 // Loader AABB colliders — match pushBackField.ts (LOADER_X_OFFSET=54, LOADER_W=6, LOADER_D=5, HALF=72).
 // Loaders sit at the top/bottom field edges (y=±72). hw = width/2, hh = depth/2.
@@ -249,7 +292,7 @@ export function usePhysics(
       // Park Zone speed multiplier — briefly applied when an axle crosses the tape.
       const speedMult = now < parkZoneStuckUntilRef.current ? 0.05 : 1.0
 
-      const newHdg = r.heading + turn * turnRateRef.current * speedMult * dt
+      let newHdg = r.heading + turn * turnRateRef.current * speedMult * dt
       const rad    = (newHdg * Math.PI) / 180
       const cosH   = Math.cos(rad)
       const sinH   = Math.sin(rad)
@@ -265,10 +308,25 @@ export function usePhysics(
       let newX = Math.max(-BOUND, Math.min(BOUND, r.x + robotVx * dt))
       let newY = Math.max(-BOUND, Math.min(BOUND, r.y + robotVy * dt))
 
-      // Resolve robot against solid long goals and solid loaders (run twice for corner stability).
+      // Resolve robot against solid long goals, center goals, and loaders (run twice for corner stability).
       for (let gi = 0; gi < 2; gi++) {
         for (const g of LONG_GOAL_COLLIDERS) {
           const res = resolveRobotGoalAABB(newX, newY, newHdg, g.cx, g.cy, g.hw, g.hh)
+          if (res) {
+            newX = Math.max(-BOUND, Math.min(BOUND, res.x))
+            newY = Math.max(-BOUND, Math.min(BOUND, res.y))
+          }
+        }
+        // Both center goals are solid for the robot even though upper allows ball under-passage.
+        {
+          const res = resolveRobotGoalOBB(newX, newY, newHdg, 0, 0, CG_UPPER_HALF_L, CG_UPPER_HALF_W, CG_UPPER_ROT)
+          if (res) {
+            newX = Math.max(-BOUND, Math.min(BOUND, res.x))
+            newY = Math.max(-BOUND, Math.min(BOUND, res.y))
+          }
+        }
+        {
+          const res = resolveRobotGoalOBB(newX, newY, newHdg, 0, 0, CG_LOWER_HALF_L, CG_LOWER_HALF_W, CG_LOWER_ROT)
           if (res) {
             newX = Math.max(-BOUND, Math.min(BOUND, res.x))
             newY = Math.max(-BOUND, Math.min(BOUND, res.y))
@@ -320,6 +378,43 @@ export function usePhysics(
       prevRobotYForPZRef.current = newY
       prevRobotXForPZRef.current = newX
 
+      // ── 1.5 Long-goal alignment assist (contact-based) ─────────────────────
+      // Activates ONLY when the robot's back face is physically touching a long
+      // goal's open end — not from a distance. When in contact, applies a strong
+      // heading correction AND a lateral position correction so the rear outtake
+      // mechanism lines up with the goal channel reliably.
+      {
+        const CONTACT_MARGIN = 4.0   // inches — back face must be within this of open end
+        const HDG_RATE       = 360.0 // degrees/sec — decisive; corrects 40° in ~0.11 s
+        const HDG_THRESH     = 50.0  // max heading error to apply assist
+        const X_RATE         = 60.0  // inches/sec — lateral pull toward goal channel axis
+        const backX = newX - ROBOT_HALF * cosH
+        const backY = newY - ROBOT_HALF * sinH
+        for (const g of LONG_GOAL_PHYSICS) {
+          // Only assist when the robot's back is laterally near the goal channel.
+          if (Math.abs(backX - g.cx) > g.hw + ROBOT_HALF + 3) continue
+          const southEnd = g.cy - g.hh
+          const northEnd = g.cy + g.hh
+          let targetHdg: number | null = null
+          // Contact with south open end: back face is within CONTACT_MARGIN of south end.
+          if (backY >= southEnd - CONTACT_MARGIN && backY <= southEnd + CONTACT_MARGIN) targetHdg = 270
+          // Contact with north open end: back face is within CONTACT_MARGIN of north end.
+          if (backY >= northEnd - CONTACT_MARGIN && backY <= northEnd + CONTACT_MARGIN) targetHdg = 90
+          if (targetHdg === null) continue
+          // Heading correction — strong rate, capped per frame.
+          const rawDiff = ((targetHdg - newHdg) % 360 + 540) % 360 - 180
+          if (Math.abs(rawDiff) <= HDG_THRESH) {
+            newHdg += Math.sign(rawDiff) * Math.min(Math.abs(rawDiff), HDG_RATE * dt)
+          }
+          // Lateral position correction — pull robot center toward goal channel axis.
+          const xErr = g.cx - newX
+          if (Math.abs(xErr) > 0.05) {
+            newX += Math.sign(xErr) * Math.min(Math.abs(xErr), X_RATE * dt)
+            newX  = Math.max(-BOUND, Math.min(BOUND, newX))
+          }
+        }
+      }
+
       robotRef.current = { ...r, x: newX, y: newY, heading: newHdg }
 
       const rob = robotRef.current
@@ -331,13 +426,97 @@ export function usePhysics(
           const id = heldIdsRef.current[0]
           const ob = blocksRef.current.find(bl => bl.id === id)
           if (ob) {
-            // Fixed center outtake point: just past the front face, no lateral offset.
-            const OUTTAKE_LX = RHW + 2.0
-            ob.x = Math.max(-FIELD_INNER, Math.min(FIELD_INNER, rob.x + OUTTAKE_LX * cosH))
-            ob.y = Math.max(-FIELD_INNER, Math.min(FIELD_INNER, rob.y + OUTTAKE_LX * sinH))
-            ob.vx = cosH * 18
-            ob.vy = sinH * 18
-            ob.state = 'field'
+            // Rear outtake: spawn 2" behind the robot's back face.
+            // Uses rob.heading (which includes the alignment correction applied this frame).
+            // No boundary clamping here — the ball must always come from the rear of the
+            // robot only. The wall resolver handles any marginal out-of-bounds next frame.
+            const OUTTAKE_BACK_LX = RHW + 2.0
+            const outRad  = (rob.heading * Math.PI) / 180
+            const outCosH = Math.cos(outRad)
+            const outSinH = Math.sin(outRad)
+            const ox = rob.x - OUTTAKE_BACK_LX * outCosH
+            const oy = rob.y - OUTTAKE_BACK_LX * outSinH
+            ob.x = ox
+            ob.y = oy
+            // If the outtake point lands inside the upper center goal, put block in its channel.
+            if (isInsideUpperCenterGoal(ox, oy)) {
+              ob.state  = 'goal'
+              ob.goalId = 'center-goal-upper'
+              // Project outtake position onto goal length axis, center on width axis.
+              const projL = ox * CG_COS + oy * CG_SIN
+              ob.x  = projL * CG_COS
+              ob.y  = projL * CG_SIN
+              ob.vx = 0; ob.vy = 0
+              // Carry backward outtake momentum along goal length axis.
+              const outVl = -(outCosH * CG_COS + outSinH * CG_SIN) * 18
+              ob.vx = outVl * CG_COS
+              ob.vy = outVl * CG_SIN
+            }
+            // If the outtake point lands inside a long goal, put block into goal channel.
+            else {
+            const hitGoal = getGoalAtPoint(ox, oy)
+            if (hitGoal) {
+              ob.state = 'goal'
+              ob.goalId = hitGoal.id
+              // Center X on the goal channel; carry backward momentum as Y velocity.
+              ob.x = hitGoal.cx
+              ob.vx = 0
+              ob.vy = Math.abs(outSinH) > 0.1 ? -outSinH * 18 : 0
+
+              // ── Chain push ─────────────────────────────────────────────────
+              // Immediately shift all existing balls in this goal to make room for
+              // the new entry. The continuous collision resolution runs only 3
+              // iterations per frame and can't propagate forces through a packed
+              // stack fast enough, so the new ball gets pushed back out the entry
+              // end without this direct adjustment.
+              // We sort balls in the push direction and cascade positions so each
+              // ball is at least one diameter away from its southern neighbour.
+              // Any ball pushed past the far open end exits to field state.
+              if (Math.abs(ob.vy) > 0) {
+                const SPACING  = BLOCK_RADIUS * 2 + 0.2  // min gap between ball centres
+                const pushNorth = ob.vy > 0
+                const siblings  = blocksRef.current.filter(
+                  bl => bl.state === 'goal' && bl.goalId === hitGoal.id && bl.id !== ob.id
+                )
+                if (pushNorth) {
+                  // New ball entered from south — cascade existing balls northward.
+                  siblings.sort((a, b) => a.y - b.y)
+                  let floor = ob.y + SPACING
+                  for (const bl of siblings) {
+                    if (bl.y < floor) { bl.y = floor; if (bl.vy < ob.vy) bl.vy = ob.vy }
+                    floor = bl.y + SPACING
+                  }
+                } else {
+                  // New ball entered from north — cascade existing balls southward.
+                  siblings.sort((a, b) => b.y - a.y)
+                  let ceil = ob.y - SPACING
+                  for (const bl of siblings) {
+                    if (bl.y > ceil) { bl.y = ceil; if (bl.vy > ob.vy) bl.vy = ob.vy }
+                    ceil = bl.y - SPACING
+                  }
+                }
+                // Immediately exit any balls pushed past an open end.
+                for (const bl of siblings) {
+                  const d = bl.y - hitGoal.cy
+                  if (Math.abs(d) > hitGoal.hh) {
+                    bl.state  = 'field'
+                    bl.goalId = undefined
+                    const sign = d > 0 ? 1 : -1
+                    bl.y  = hitGoal.cy + sign * (hitGoal.hh + BLOCK_RADIUS + 0.1)
+                    bl.x  = hitGoal.cx
+                    bl.vy = sign * Math.max(Math.abs(bl.vy), 8)
+                    bl.vx = 0
+                  }
+                }
+              }
+              // ── End chain push ─────────────────────────────────────────────
+            } else {
+              ob.vx = -outCosH * 18
+              ob.vy = -outSinH * 18
+              ob.state = 'field'
+              ob.goalId = undefined
+            }
+            } // end else (not upper center goal)
           }
           heldIdsRef.current = heldIdsRef.current.slice(1)
         }
@@ -348,6 +527,7 @@ export function usePhysics(
 
       if (intakeActive && heldIdsRef.current.length < capacityRef.current) {
         for (const b of blocksRef.current) {
+          // 'goal' blocks cannot be intaked — they are inside the raised goal channel.
           if (b.state !== 'field') continue
           if (heldIdsRef.current.length >= capacityRef.current) break
 
@@ -370,12 +550,14 @@ export function usePhysics(
       }
 
       // ── 2b. Loader dispense — one ball per 100 ms, same rate as outtake ───
-      // Iterates in reverse so higher-index (blue/top) balls come out first.
+      // Iterates forward: lower-index balls dispense first.
+      // Red-side loaders have red at lower indices → 3 red out first, then 3 blue.
+      // Blue-side loaders have blue at lower indices (colors swapped by mirror) → 3 blue first, 3 red.
       // The intake zone check is identical to regular pickup; the robot must
       // face and position itself at the loader mouth to trigger dispensing.
       if (intakeActive && heldIdsRef.current.length < capacityRef.current) {
         if (now - lastLoaderDispenseRef.current >= 100) {
-          for (let i = blocksRef.current.length - 1; i >= 0; i--) {
+          for (let i = 0; i < blocksRef.current.length; i++) {
             const b = blocksRef.current[i]
             if (b.state !== 'loader') continue
 
@@ -477,7 +659,7 @@ export function usePhysics(
       // ── 4. Integrate velocities + friction ('field' blocks only) ───────────
       const blocks = blocksRef.current
       for (const b of blocks) {
-        if (b.state !== 'field') continue  // skip 'held' and 'loader'
+        if (b.state !== 'field') continue  // skip 'held', 'loader', 'goal'
 
         b.x += b.vx * dt
         b.y += b.vy * dt
@@ -494,6 +676,82 @@ export function usePhysics(
         }
       }
 
+      // ── 4b-i. Upper center goal channel physics ──────────────────────────
+      // Blocks inside the upper center goal move along the 45° diagonal axis.
+      // Width axis is locked to 0; exit through either end converts to field state.
+      for (const b of blocks) {
+        if (b.state !== 'goal' || b.goalId !== 'center-goal-upper') continue
+        const cg = CENTER_GOAL_UPPER
+
+        // Decompose block position/velocity into goal local frame
+        const dx = b.x - cg.cx, dy = b.y - cg.cy
+        let lx = dx * CG_COS + dy * CG_SIN    // along length axis
+        let vlx = b.vx * CG_COS + b.vy * CG_SIN
+
+        // Integrate and apply friction along length axis
+        lx += vlx * dt
+        const absVlx = Math.abs(vlx)
+        if (absVlx > REST_SPEED) {
+          const decel = Math.min(absVlx, FRICTION * dt)
+          vlx = vlx > 0 ? vlx - decel : vlx + decel
+        } else {
+          vlx = 0
+        }
+
+        // Lock to goal axis in world space
+        b.x  = cg.cx + lx * CG_COS
+        b.y  = cg.cy + lx * CG_SIN
+        b.vx = vlx * CG_COS
+        b.vy = vlx * CG_SIN
+
+        // Exit through open ends
+        if (Math.abs(lx) > cg.halfL) {
+          b.state  = 'field'
+          b.goalId = undefined
+          const sign = lx > 0 ? 1 : -1
+          const exitL = sign * (cg.halfL + BLOCK_RADIUS + 0.1)
+          b.x  = cg.cx + exitL * CG_COS
+          b.y  = cg.cy + exitL * CG_SIN
+          b.vx = sign * Math.max(Math.abs(vlx), 8) * CG_COS
+          b.vy = sign * Math.max(Math.abs(vlx), 8) * CG_SIN
+        }
+      }
+
+      // ── 4b. Long goal-channel physics ('goal' blocks) ────────────────────
+      // Each block in a long goal moves only along the goal's Y axis. X is
+      // clamped to the channel walls. If the block drifts past either open end
+      // (|y| > halfH) it converts back to a normal field block.
+      for (const b of blocks) {
+        if (b.state !== 'goal' || b.goalId === 'center-goal-upper') continue
+        const g = LONG_GOAL_PHYSICS.find(g => g.id === b.goalId)
+        if (!g) { b.state = 'field'; b.goalId = undefined; continue }
+
+        // Integrate along Y; zero out any X velocity immediately.
+        b.y += b.vy * dt
+        b.x = g.cx  // lock to channel center X
+        b.vx = 0
+
+        // Apply friction along Y
+        const absVy = Math.abs(b.vy)
+        if (absVy > REST_SPEED) {
+          const decel = Math.min(absVy, FRICTION * dt)
+          b.vy = b.vy > 0 ? b.vy - decel : b.vy + decel
+        } else {
+          b.vy = 0
+        }
+
+        // Exit through open ends: convert to field state and eject just past the end.
+        const distFromCenter = b.y - g.cy
+        if (Math.abs(distFromCenter) > g.hh) {
+          b.state = 'field'
+          b.goalId = undefined
+          // Place block just outside the end with a small separating velocity.
+          const sign = distFromCenter > 0 ? 1 : -1
+          b.y = g.cy + sign * (g.hh + BLOCK_RADIUS + 0.1)
+          b.vy = sign * Math.max(Math.abs(b.vy), 8)
+        }
+      }
+
       // ── 5. Collision resolution ('field' blocks only, multiple iterations) ─
       // 'loader' blocks are immune — they cannot be pushed by the robot or other
       // blocks, and they are not wall-clamped (they sit just past the clamp limit).
@@ -503,6 +761,12 @@ export function usePhysics(
         }
         for (const b of blocks) {
           if (b.state === 'field') resolveRobotBlock(rob.x, rob.y, rob.heading, robotVx, robotVy, b)
+        }
+        // Lower center goal is a solid ball obstacle (upper allows under-passage — no ball collision).
+        for (const b of blocks) {
+          if (b.state === 'field') {
+            resolveBlockGoalOBB(b, 0, 0, CG_LOWER_HALF_L, CG_LOWER_HALF_W, CG_LOWER_ROT)
+          }
         }
         for (let i = 0; i < blocks.length - 1; i++) {
           for (let j = i + 1; j < blocks.length; j++) {
@@ -560,6 +824,62 @@ export function usePhysics(
         }
       }
 
+      // ── 5c. Long goal-channel block-block collisions ─────────────────────
+      // 'goal' blocks within the same long goal collide with each other along Y only.
+      // After resolution X is re-locked to the channel center and exit is re-checked.
+      // (Upper center goal blocks are skipped here — they have their own axis.)
+      for (let iter = 0; iter < ITERS; iter++) {
+        for (let i = 0; i < blocks.length - 1; i++) {
+          const a = blocks[i]
+          if (a.state !== 'goal' || a.goalId === 'center-goal-upper') continue
+          for (let j = i + 1; j < blocks.length; j++) {
+            const b = blocks[j]
+            if (b.state !== 'goal' || b.goalId !== a.goalId) continue
+            resolveBlockBlock(a, b)
+            // Re-lock X and zero out X velocity after generic resolution.
+            const g = LONG_GOAL_PHYSICS.find(g => g.id === a.goalId)
+            if (g) {
+              a.x = g.cx; a.vx = 0
+              b.x = g.cx; b.vx = 0
+              // Re-check exits for both blocks after push.
+              for (const bl of [a, b]) {
+                const dist = bl.y - g.cy
+                if (Math.abs(dist) > g.hh) {
+                  bl.state = 'field'
+                  bl.goalId = undefined
+                  const sign = dist > 0 ? 1 : -1
+                  bl.y = g.cy + sign * (g.hh + BLOCK_RADIUS + 0.1)
+                  bl.vy = sign * Math.max(Math.abs(bl.vy), 8)
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // ── 5d. Robot pushing long-goal-channel blocks through open ends ──────
+      // The robot can reach goal-state blocks at the open ends and push them
+      // along the channel or knock them out. Only the Y component of the robot's
+      // push force carries through; X is immediately re-locked afterward.
+      // (Center-goal-upper blocks are excluded — they have their own axis logic.)
+      for (const b of blocks) {
+        if (b.state !== 'goal' || b.goalId === 'center-goal-upper') continue
+        const g = LONG_GOAL_PHYSICS.find(g => g.id === b.goalId)
+        if (!g) continue
+        resolveRobotBlock(rob.x, rob.y, rob.heading, robotVx, robotVy, b)
+        // Re-lock X regardless of where the generic resolver put it.
+        b.x = g.cx; b.vx = 0
+        // Exit check after robot push.
+        const dist = b.y - g.cy
+        if (Math.abs(dist) > g.hh) {
+          b.state = 'field'
+          b.goalId = undefined
+          const sign = dist > 0 ? 1 : -1
+          b.y = g.cy + sign * (g.hh + BLOCK_RADIUS + 0.1)
+          b.vy = sign * Math.max(Math.abs(b.vy), 8)
+        }
+      }
+
       // ── 6. Snapshot for React rendering ──────────────────────────────────
       setRenderState({
         robot: { ...rob },
@@ -568,6 +888,7 @@ export function usePhysics(
           x: b.x, y: b.y,
           vx: b.vx, vy: b.vy,
           state: b.state,
+          goalId: b.goalId,
         })),
         intakeActive,
         heldIds: [...heldIdsRef.current],

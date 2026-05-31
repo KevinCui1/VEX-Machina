@@ -82,19 +82,29 @@ export interface LongGoal {
 }
 
 /**
- * A Center Goal. In Push Back the two center goals stack to read as an "X" from
- * above; each is modeled as a square rotated 45° (a diamond).
+ * A Center Goal. The two center goals cross at the field origin forming an X.
+ * Each is modeled as an oriented rectangle at ±45°.
+ *
+ * Upper center goal (rotation=45): runs upper-right ↔ lower-left, wider (5.53"),
+ * elevated — balls can slide under it, and balls outtaked inside are captured.
+ *
+ * Lower center goal (rotation=-45): runs upper-left ↔ lower-right, narrower (4.15"),
+ * solid floor — balls cannot pass under it.
  */
 export interface CenterGoal {
   id: string
   label: string
   center: Vec2
-  /** Tip-to-tip length of the goal. */
+  /** Total length along the long axis (22.6" for both). */
   length: number
-  /** Square side length (the diamond's edge). */
-  side: number
-  /** Rotation in degrees CCW. */
+  /** Cross-axis width (5.53" upper, 4.15" lower). */
+  width: number
+  /** Rotation in degrees CCW (45 for upper, -45 for lower). */
   rotation: number
+  /** If true, render triangular alignment pieces at each end (upper goal only). */
+  hasAlignmentTriangles: boolean
+  /** If true, field balls slide underneath; if false, goal is a solid ball obstacle. */
+  allowUnderPassage: boolean
   placement: SourceNote
 }
 

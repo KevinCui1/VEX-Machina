@@ -44,7 +44,8 @@ const LG_X_OFFSET = 48
 
 // Center Goal (verified length from "Center Goal Specifications": 573.99 mm).
 const CG_LENGTH = 22.6
-const CG_SIDE = CG_LENGTH / Math.SQRT2 // diamond edge so tip-to-tip = length
+const CG_UPPER_WIDTH = 5.53 // user-specified
+const CG_LOWER_WIDTH = 4.15 // user-specified
 
 // Loader footprint (verified-ish from "Loader Specifications": ⌀3.94 mouth,
 // ~4.65 x 4.17 base). Position along the wall is APPROXIMATE.
@@ -245,25 +246,29 @@ export const pushBackField: GameField = {
       label: 'UPPER',
       center: { x: 0, y: 0 },
       length: CG_LENGTH,
-      side: CG_SIDE,
+      width: CG_UPPER_WIDTH,
       rotation: 45,
+      hasAlignmentTriangles: true,
+      allowUnderPassage: true,
       placement: {
         confidence: 'approximate',
-        source: 'Center Goal Specifications (length verified) + object-placement (central X).',
-        note: 'Modeled as a 45°-rotated square at field center.',
+        source: 'Center Goal Specifications (length 22.6" verified). Width 5.53" user-specified.',
+        note: 'Runs upper-right ↔ lower-left (positive slope, rotation=45°). Elevated — balls slide under, outtaked balls captured inside.',
       },
     },
     {
       id: 'center-goal-lower',
       label: 'LOWER',
       center: { x: 0, y: 0 },
-      length: CG_LENGTH * 1.18, // lower reads slightly larger from above
-      side: (CG_LENGTH * 1.18) / Math.SQRT2,
-      rotation: 45,
+      length: CG_LENGTH,
+      width: CG_LOWER_WIDTH,
+      rotation: -45,
+      hasAlignmentTriangles: false,
+      allowUnderPassage: false,
       placement: {
         confidence: 'approximate',
-        source: 'Center Goal Specifications (length verified) + object-placement (central X).',
-        note: 'Upper/lower stack as a concentric pair; relative size approximate.',
+        source: 'Center Goal Specifications (length 22.6" verified). Width 4.15" user-specified.',
+        note: 'Runs upper-left ↔ lower-right (negative slope, rotation=-45°). Solid floor — balls cannot pass under.',
       },
     },
   ],

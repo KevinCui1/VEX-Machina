@@ -12,6 +12,10 @@
 .pbl-shadow-held {
   fill: rgba(0, 0, 0, 0.20);
 }
+/* Larger offset shadow for goal blocks (elevated above goal channel) */
+.pbl-shadow-goal {
+  fill: rgba(0, 0, 0, 0.35);
+}
 
 /* ── Block bodies ────────────────────────────────────────────────────────── */
 .pbl-block.pbl-red  { fill: #e03030; }
@@ -20,6 +24,13 @@
 /* Held blocks: slightly brightened to draw attention */
 .pbl-block.pbl-held.pbl-red  { fill: #ee4444; }
 .pbl-block.pbl-held.pbl-blue { fill: #3070e0; }
+
+/* Goal blocks: bright white rim to signal "scored / elevated" */
+.pbl-block.pbl-goal {
+  stroke: rgba(255, 255, 255, 0.75);
+  stroke-width: 0.55;
+  paint-order: stroke fill;
+}
 
 /* ── Inner bevel ─────────────────────────────────────────────────────────── */
 .pbl-inner.pbl-red  { fill: #f05a50; opacity: 0.70; }
@@ -83,5 +94,10 @@
 
 .pbl-debug-state-held {
   fill: rgba(100, 255, 160, 0.90);
+  font-weight: bold;
+}
+
+.pbl-debug-state-goal {
+  fill: rgba(255, 220, 80, 0.95);
   font-weight: bold;
 }

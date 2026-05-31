@@ -130,10 +130,37 @@
   stroke: rgba(185, 155, 100, 0.85);
   stroke-width: 0.5;
 }
-.fv-goal-divider {
-  stroke: rgba(185, 155, 100, 0.65);
-  stroke-width: 0.4;
-  stroke-dasharray: 1.2 1.2;
+/* Solid white control-zone strip (replaces old dotted divider). Matches the
+   white tape-line aesthetic used for the field autonomous line. */
+.fv-goal-cz-strip {
+  fill: rgba(255, 255, 255, 0.88);
+  stroke: none;
+}
+/* Triangular support/guide pieces at the open ends of each long goal or center goal.
+   Rendered as part of the goal structure — slightly darker than the glass body. */
+.fv-goal-support-tri {
+  fill: rgba(155, 128, 80, 0.60);
+  stroke: rgba(185, 155, 100, 0.82);
+  stroke-width: 0.35;
+  stroke-linejoin: round;
+}
+
+/* ── Center goals — visual differentiation within the same design family ───── */
+/* Upper center goal: slightly warmer/brighter tint to distinguish from lower */
+.fv-centergoal-upper .fv-goal-glass {
+  fill: rgba(220, 195, 148, 0.50);
+}
+.fv-centergoal-upper .fv-goal-outline {
+  stroke: rgba(200, 168, 110, 0.90);
+  stroke-width: 0.6;
+}
+/* Lower center goal: slightly cooler/darker tint */
+.fv-centergoal-lower .fv-goal-glass {
+  fill: rgba(185, 162, 118, 0.40);
+}
+.fv-centergoal-lower .fv-goal-outline {
+  stroke: rgba(165, 138, 90, 0.88);
+  stroke-width: 0.55;
 }
 
 /* ── Loaders (field-side structures with alliance coloring) ──────────────── */

@@ -24,6 +24,13 @@ import './PhysicsBlockLayer.css'
 interface PhysicsBlockLayerProps {
   blocks: PhysicsBlock[]
   showDebug: boolean
+  /**
+   * 'field'        — render only state:'field' blocks (below goals and loaders).
+   * 'loader'       — render only state:'loader' blocks (above loader bodies).
+   * 'goal'         — render only state:'goal' blocks inside long goals (above long goal structure).
+   * 'center-goal'  — render only state:'goal' blocks inside the upper center goal (above upper center goal structure).
+   */
+  mode: 'field' | 'loader' | 'goal' | 'center-goal'
 }
 
 // ─── Octagon geometry ─────────────────────────────────────────────────────────
@@ -37,16 +44,24 @@ const INNER_SCALE = 0.62
 const VEL_ARROW_SCALE = 0.09
 const VEL_ARROW_MAX   = 5
 
-export default function PhysicsBlockLayer({ blocks, showDebug }: PhysicsBlockLayerProps) {
+export default function PhysicsBlockLayer({ blocks, showDebug, mode }: PhysicsBlockLayerProps) {
   return (
     <g className="pbl-layer" pointerEvents="none">
       {blocks.map((b) => {
         if (b.state === 'held') return null
+        // Each mode renders exactly one state — no overlap between passes.
+        if (mode === 'field'       && b.state !== 'field')  return null
+        if (mode === 'loader'      && b.state !== 'loader') return null
+        // 'goal' mode: only long-goal blocks (goalId starts with 'long-goal')
+        if (mode === 'goal'        && (b.state !== 'goal' || b.goalId === 'center-goal-upper')) return null
+        // 'center-goal' mode: only upper center goal blocks
+        if (mode === 'center-goal' && (b.state !== 'goal' || b.goalId !== 'center-goal-upper')) return null
 
         const c        = toSvg({ x: b.x, y: b.y })
         const speed    = Math.hypot(b.vx, b.vy)
         const isMoving = speed > 0.25
         const isHeld   = false
+        const isGoal   = b.state === 'goal'
 
         return (
           <Fragment key={b.id}>
@@ -61,17 +76,17 @@ export default function PhysicsBlockLayer({ blocks, showDebug }: PhysicsBlockLay
                 />
               )}
 
-              {/* Drop shadow */}
+              {/* Drop shadow — goal blocks sit higher so shadow is smaller/offset */}
               <polygon
                 points={OCTAGON_POINTS}
-                transform={isHeld ? 'translate(0.1 0.1)' : 'translate(0.25 0.3)'}
-                className={`pbl-shadow ${isHeld ? 'pbl-shadow-held' : ''}`}
+                transform={isHeld ? 'translate(0.1 0.1)' : isGoal ? 'translate(0.4 0.5)' : 'translate(0.25 0.3)'}
+                className={`pbl-shadow ${isHeld ? 'pbl-shadow-held' : ''} ${isGoal ? 'pbl-shadow-goal' : ''}`}
               />
 
               {/* Main body */}
               <polygon
                 points={OCTAGON_POINTS}
-                className={`pbl-block pbl-${b.color} ${isHeld ? 'pbl-held' : ''}`}
+                className={`pbl-block pbl-${b.color} ${isHeld ? 'pbl-held' : ''} ${isGoal ? 'pbl-goal' : ''}`}
               />
 
               {/* Inner bevel highlight */}
@@ -107,7 +122,7 @@ export default function PhysicsBlockLayer({ blocks, showDebug }: PhysicsBlockLay
                   <text x={BLOCK_RADIUS + 0.4} y={-0.3} className="pbl-debug-label">
                     {b.id}
                   </text>
-                  <text x={BLOCK_RADIUS + 0.4} y={1.5} className={`pbl-debug-state ${isHeld ? 'pbl-debug-state-held' : ''}`}>
+                  <text x={BLOCK_RADIUS + 0.4} y={1.5} className={`pbl-debug-state ${isHeld ? 'pbl-debug-state-held' : ''} ${isGoal ? 'pbl-debug-state-goal' : ''}`}>
                     {b.state}
                   </text>
                 </g>

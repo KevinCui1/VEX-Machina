@@ -130,6 +130,13 @@
   stroke-width: 0.9;
 }
 
+/* ── Rear outtake channel guide lines ───────────────────────────────────────── */
+.rl-outtake-line {
+  stroke: rgba(215, 205, 175, 0.82);
+  stroke-width: 0.65;
+  stroke-linecap: round;
+}
+
 /* ── Debug intake zone rectangle ─────────────────────────────────────────────── */
 .rl-debug-intake-zone {
   fill: rgba(120, 255, 120, 0.08);
