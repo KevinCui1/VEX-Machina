@@ -571,8 +571,9 @@ export function usePhysics(
               ob.state  = 'goal'
               ob.goalId = 'center-goal-upper'
               const { cosG, sinG, halfL } = CENTER_GOAL_UPPER
-              // Place block just inside the entry end; shoot it inward.
-              const sign = hdgDiff225 <= hdgDiff45 ? 1 : -1
+              // Determine entry end from robot's position along the goal axis —
+              // not heading — so the ball always enters from the nearest end.
+              const sign = (rob.x * cosG + rob.y * sinG) >= 0 ? 1 : -1
               ob.x  = sign * (halfL - BLOCK_RADIUS - 0.5) * cosG
               ob.y  = sign * (halfL - BLOCK_RADIUS - 0.5) * sinG
               ob.vx = -sign * 18 * cosG
@@ -676,8 +677,8 @@ export function usePhysics(
               ob.state  = 'goal'
               ob.goalId = 'center-goal-lower'
               const { cosG, sinG, halfL } = CENTER_GOAL_LOWER
-              // Place block just inside the entry end; shoot it inward.
-              const sign = hdgDiff315 <= hdgDiff135 ? 1 : -1
+              // Determine entry end from robot's position along the goal axis.
+              const sign = (rob.x * cosG + rob.y * sinG) >= 0 ? 1 : -1
               ob.x  = sign * (halfL - BLOCK_RADIUS - 0.5) * cosG
               ob.y  = sign * (halfL - BLOCK_RADIUS - 0.5) * sinG
               ob.vx = -sign * 18 * cosG
