@@ -25,6 +25,13 @@ export interface PhysicsBlock {
   state: 'field' | 'held' | 'loader' | 'goal'
   /** ID of the long goal this block is inside (only set when state='goal'). */
   goalId?: string
+  /**
+   * Timestamp (ms, from requestAnimationFrame) at which to apply a mild random
+   * scatter kick to this block. Set when a block exits the lower center goal so
+   * it travels straight briefly before scattering. Cleared once fired or when
+   * the block is intaken.
+   */
+  scatterAt?: number
 }
 
 // Physical block size: 3.23" flat-to-flat (verified from Block Specifications).

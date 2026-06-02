@@ -108,10 +108,13 @@ export default function FieldView({
       {/* Field blocks — below lower center goal and under upper center goal */}
       <PhysicsBlockLayer blocks={physicsBlocks} showDebug={showDebug} mode="field" />
 
-      {/* Lower center goal — solid, renders above field blocks (balls bounce off it) */}
+      {/* Lower center goal structure — rendered above field blocks */}
       {field.centerGoals.filter(g => !g.allowUnderPassage).map(g => (
         <SingleCenterGoal key={g.id} goal={g} />
       ))}
+
+      {/* Blocks scored inside lower center goal — above the lower goal structure */}
+      <PhysicsBlockLayer blocks={physicsBlocks} showDebug={showDebug} mode="center-goal-lower" />
 
       {/* Upper center goal structure — field balls slide under it, rendered above them */}
       {field.centerGoals.filter(g => g.allowUnderPassage).map(g => (

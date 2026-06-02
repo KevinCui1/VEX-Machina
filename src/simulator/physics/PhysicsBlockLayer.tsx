@@ -25,12 +25,13 @@ interface PhysicsBlockLayerProps {
   blocks: PhysicsBlock[]
   showDebug: boolean
   /**
-   * 'field'        — render only state:'field' blocks (below goals and loaders).
-   * 'loader'       — render only state:'loader' blocks (above loader bodies).
-   * 'goal'         — render only state:'goal' blocks inside long goals (above long goal structure).
-   * 'center-goal'  — render only state:'goal' blocks inside the upper center goal (above upper center goal structure).
+   * 'field'              — state:'field' blocks (below all goals).
+   * 'loader'             — state:'loader' blocks (above loader bodies).
+   * 'goal'               — state:'goal' blocks in long goals (above long goal structure).
+   * 'center-goal'        — state:'goal' blocks in upper center goal (above upper goal structure).
+   * 'center-goal-lower'  — state:'goal' blocks in lower center goal (above lower goal structure).
    */
-  mode: 'field' | 'loader' | 'goal' | 'center-goal'
+  mode: 'field' | 'loader' | 'goal' | 'center-goal' | 'center-goal-lower'
 }
 
 // ─── Octagon geometry ─────────────────────────────────────────────────────────
@@ -50,12 +51,14 @@ export default function PhysicsBlockLayer({ blocks, showDebug, mode }: PhysicsBl
       {blocks.map((b) => {
         if (b.state === 'held') return null
         // Each mode renders exactly one state — no overlap between passes.
-        if (mode === 'field'       && b.state !== 'field')  return null
-        if (mode === 'loader'      && b.state !== 'loader') return null
-        // 'goal' mode: only long-goal blocks (goalId starts with 'long-goal')
-        if (mode === 'goal'        && (b.state !== 'goal' || b.goalId === 'center-goal-upper')) return null
-        // 'center-goal' mode: only upper center goal blocks
-        if (mode === 'center-goal' && (b.state !== 'goal' || b.goalId !== 'center-goal-upper')) return null
+        if (mode === 'field'             && b.state !== 'field')  return null
+        if (mode === 'loader'            && b.state !== 'loader') return null
+        // 'goal': only long-goal blocks
+        if (mode === 'goal'              && (b.state !== 'goal' || b.goalId?.startsWith('center-goal'))) return null
+        // 'center-goal': upper center goal blocks (render above upper goal structure)
+        if (mode === 'center-goal'       && (b.state !== 'goal' || b.goalId !== 'center-goal-upper')) return null
+        // 'center-goal-lower': lower center goal blocks (render above lower goal structure)
+        if (mode === 'center-goal-lower' && (b.state !== 'goal' || b.goalId !== 'center-goal-lower')) return null
 
         const c        = toSvg({ x: b.x, y: b.y })
         const speed    = Math.hypot(b.vx, b.vy)

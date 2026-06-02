@@ -83,9 +83,10 @@ export default function FieldSimulator() {
 
             <div className="fs-keybind-section">
               <div className="fs-keybind-group-label">Actions</div>
-              <KeybindRow label="Intake (hold)"   keys={['Space', 'LMB']} />
-              <KeybindRow label="Release Blocks"  keys={['X']} />
-              <KeybindRow label="Reset Field"     keys={['R']} />
+              <KeybindRow label="Intake (hold)"        keys={['Space', 'LMB']} />
+              <KeybindRow label="Rear Outtake (→ goal)" keys={['X']} />
+              <KeybindRow label="Front Outtake (→ lower)" keys={['C']} />
+              <KeybindRow label="Reset Field"          keys={['R']} />
             </div>
 
             {showDebug && (
@@ -98,6 +99,7 @@ export default function FieldSimulator() {
                   <KeyPill label="D"   active={heldKeys.has('d') || heldKeys.has('arrowright')} />
                   <KeyPill label="SPC" active={intakeActive} />
                   <KeyPill label="X"   active={heldKeys.has('x')} />
+                  <KeyPill label="C"   active={heldKeys.has('c')} />
                 </div>
               </div>
             )}

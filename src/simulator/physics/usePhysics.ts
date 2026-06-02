@@ -18,7 +18,8 @@
 //   R       reset scene (robot + test blocks, clears held blocks)
 //   Space   activate intake (hold to keep active)
 //   LMB     activate intake (hold to keep active)
-//   X       release all held blocks
+//   X       release held blocks through the REAR outtake (long goals / upper center goal)
+//   C       release held blocks through the FRONT outtake (lower center goal only)
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -38,7 +39,7 @@ import type { RobotState } from '../robot/robotTypes'
 import { makeTestBlocks } from './testLayout'
 import type { PhysicsBlock } from './physicsTypes'
 import { BLOCK_RADIUS } from './physicsTypes'
-import { resolveBlockBlock, resolveBlockWall, resolveRobotBlock, resolveRobotGoalAABB, resolveRobotGoalOBB, resolveBlockGoalOBB } from './collision'
+import { resolveBlockBlock, resolveBlockWall, resolveRobotBlock, resolveRobotGoalAABB, resolveRobotGoalOBB } from './collision'
 
 // Robot center boundary: keep the body fully inside the field.
 const BOUND = FIELD_HALF - ROBOT_HALF  // 65"
@@ -54,6 +55,14 @@ const ITERS = 3
 
 // Robot half-width used for intake zone check (matches collision.ts RHW).
 const RHW = ROBOT_W / 2   // 7"
+
+// ── Scatter constants ─────────────────────────────────────────────────────────
+// Velocity kick (in/s) added to blocks that exit raised goals so they spread
+// out naturally instead of travelling in a perfectly straight line.
+const SCATTER_LONG_V   = 12    // random ±6 in/s lateral kick for long goal exits
+const SCATTER_CG_V     = 12    // random ±6 in/s perpendicular for upper center goal exits
+const SCATTER_DELAY_MS = 220   // ms delay before scatter fires for lower center goal
+const SCATTER_LOWER_V  = 9     // in/s scatter magnitude for lower center goal (post-delay)
 
 
 // Long Goal AABB colliders — must match pushBackField.ts (LG_X_OFFSET=48, LG_DEPTH=5.4, LG_TOTAL=48.79).
@@ -89,23 +98,132 @@ const CG_LOWER_HALF_W = 2.075    // CG_LOWER_WIDTH / 2
 const CG_UPPER_ROT    = 45       // degrees CCW
 const CG_LOWER_ROT    = -45
 
-// Pre-computed trig for center goal axes (45° diagonal)
-const CG_COS = Math.SQRT1_2      // cos(45°) = sin(45°)
-const CG_SIN = Math.SQRT1_2
+// Pre-computed trig for center goal length-axis directions.
+// Upper goal (rot=45°):  length axis = (cos45°, sin45°) = (SQRT1_2,  SQRT1_2)
+// Lower goal (rot=-45°): length axis = (cos-45°,sin-45°) = (SQRT1_2, -SQRT1_2)
+const CG_COS   = Math.SQRT1_2   // shared cosine magnitude (|cos(±45°)|)
+const CG_U_SIN =  Math.SQRT1_2  // sin(45°)
+const CG_L_SIN = -Math.SQRT1_2  // sin(-45°)
 
-// Center Goal physics channels — upper goal only (lower is solid).
-// Blocks inside the upper goal move along the goal's length axis (45° diagonal).
+// Proximity scoring constants for center goals.
+// When X/C is pressed, scoring succeeds if the robot center is within this
+// radius of the goal center AND heading is within HDG_TOL of a valid approach.
+const CG_SCORE_RADIUS = 20   // ": robot center must be within this of (0,0)
+const CG_SCORE_HDG    = 50   // °: heading tolerance for approach angle
+
+// Center Goal physics channels — both goals score balls along their diagonal axis.
 const CENTER_GOAL_UPPER = {
   id: 'center-goal-upper', cx: 0, cy: 0,
   halfL: CG_UPPER_HALF_L, halfW: CG_UPPER_HALF_W,
+  cosG: CG_COS, sinG: CG_U_SIN,
   rot: CG_UPPER_ROT,
 } as const
 
-// Returns true when point (px,py) is inside the upper center goal OBB.
-function isInsideUpperCenterGoal(px: number, py: number): boolean {
-  const lx = px * CG_COS + py * CG_SIN   // rotate -45° to goal local frame
-  const ly = -px * CG_SIN + py * CG_COS
-  return Math.abs(lx) <= CG_UPPER_HALF_L && Math.abs(ly) <= CG_UPPER_HALF_W
+const CENTER_GOAL_LOWER = {
+  id: 'center-goal-lower', cx: 0, cy: 0,
+  halfL: CG_LOWER_HALF_L, halfW: CG_LOWER_HALF_W,
+  cosG: CG_COS, sinG: CG_L_SIN,
+  rot: CG_LOWER_ROT,
+} as const
+
+// Returns true when point is inside the lower center goal OBB.
+function isInsideLowerCenterGoal(px: number, py: number): boolean {
+  const lx =  px * CG_COS + py * CG_L_SIN
+  const ly = -px * CG_L_SIN + py * CG_COS
+  return Math.abs(lx) <= CG_LOWER_HALF_L && Math.abs(ly) <= CG_LOWER_HALF_W
+}
+
+// ── Center goal channel helpers ───────────────────────────────────────────────
+//
+// cgReLock: after generic resolveBlockBlock, re-project a center-goal block
+// back onto its diagonal axis and check/process exit through either open end.
+//
+// delayed=true  → block came from lower center goal; mark scatterAt instead of
+//                 applying immediate scatter (balls travel straighter longer).
+// delayed=false → block came from upper center goal; apply perpendicular scatter
+//                 right away so the block doesn't continue in a straight line.
+function cgReLock(
+  b: PhysicsBlock, halfL: number, cosG: number, sinG: number,
+  now: number, delayed: boolean,
+): void {
+  const lx = b.x * cosG + b.y * sinG
+  b.x = lx * cosG;  b.y = lx * sinG
+  const vlx = b.vx * cosG + b.vy * sinG
+  b.vx = vlx * cosG; b.vy = vlx * sinG
+  if (Math.abs(lx) > halfL) {
+    b.state  = 'field'; b.goalId = undefined
+    const sign = lx > 0 ? 1 : -1
+    b.x = sign * (halfL + BLOCK_RADIUS + 0.1) * cosG
+    b.y = sign * (halfL + BLOCK_RADIUS + 0.1) * sinG
+    b.vx = sign * Math.max(Math.abs(vlx), 8) * cosG
+    b.vy = sign * Math.max(Math.abs(vlx), 8) * sinG
+    if (delayed) {
+      b.scatterAt = now + SCATTER_DELAY_MS
+    } else {
+      // Immediate perpendicular scatter — ball drops to the floor level.
+      const perpScatter = (Math.random() - 0.5) * SCATTER_CG_V
+      b.vx += perpScatter * (-sinG)
+      b.vy += perpScatter * cosG
+    }
+  }
+}
+
+// cgChainPush: immediate cascade-push of all siblings in the same center goal
+// when a new block is outtaked in — same pattern as the long goal chain push.
+function cgChainPush(
+  ob: PhysicsBlock,
+  allBlocks: PhysicsBlock[],
+  halfL: number, cosG: number, sinG: number,
+  now: number, delayed: boolean,
+): void {
+  const SPACING = BLOCK_RADIUS * 2 + 0.2
+  const obL  = ob.x * cosG + ob.y * sinG
+  const obVl = ob.vx * cosG + ob.vy * sinG
+  if (obVl === 0) return
+
+  const getL  = (bl: PhysicsBlock) => bl.x * cosG + bl.y * sinG
+  const getVl = (bl: PhysicsBlock) => bl.vx * cosG + bl.vy * sinG
+  const setL  = (bl: PhysicsBlock, l: number) => { bl.x = l * cosG; bl.y = l * sinG }
+  const setVl = (bl: PhysicsBlock, vl: number) => { bl.vx = vl * cosG; bl.vy = vl * sinG }
+
+  const siblings = allBlocks.filter(
+    bl => bl.state === 'goal' && bl.goalId === ob.goalId && bl.id !== ob.id
+  )
+
+  if (obVl > 0) {
+    siblings.sort((a, b) => getL(a) - getL(b))
+    let floor = obL + SPACING
+    for (const bl of siblings) {
+      if (getL(bl) < floor) { setL(bl, floor); if (getVl(bl) < obVl) setVl(bl, obVl) }
+      floor = getL(bl) + SPACING
+    }
+  } else {
+    siblings.sort((a, b) => getL(b) - getL(a))
+    let ceil = obL - SPACING
+    for (const bl of siblings) {
+      if (getL(bl) > ceil) { setL(bl, ceil); if (getVl(bl) > obVl) setVl(bl, obVl) }
+      ceil = getL(bl) - SPACING
+    }
+  }
+
+  // Immediately exit siblings pushed past an open end.
+  for (const bl of siblings) {
+    const blL = getL(bl)
+    if (Math.abs(blL) > halfL) {
+      bl.state = 'field'; bl.goalId = undefined
+      const sign = blL > 0 ? 1 : -1
+      setL(bl, sign * (halfL + BLOCK_RADIUS + 0.1))
+      const blVl = getVl(bl)
+      setVl(bl, sign * Math.max(Math.abs(blVl), 8))
+      if (delayed) {
+        bl.scatterAt = now + SCATTER_DELAY_MS
+      } else {
+        const perpScatter = (Math.random() - 0.5) * SCATTER_CG_V
+        bl.vx += perpScatter * (-sinG)
+        bl.vy += perpScatter * cosG
+      }
+    }
+  }
 }
 
 // Loader AABB colliders — match pushBackField.ts (LOADER_X_OFFSET=54, LOADER_W=6, LOADER_D=5, HALF=72).
@@ -170,6 +288,7 @@ export function usePhysics(
   const heldIdsRef              = useRef<string[]>([])
   const mouseDownRef            = useRef(false)
   const lastOuttakeTimeRef      = useRef<number>(Number.NEGATIVE_INFINITY)
+  const lastFrontOuttakeTimeRef = useRef<number>(Number.NEGATIVE_INFINITY)
   const lastLoaderDispenseRef   = useRef<number>(Number.NEGATIVE_INFINITY)
 
   // ── Previous robot velocity — used to compute inertial delta for held blocks
@@ -200,8 +319,9 @@ export function usePhysics(
   // ── Scene reset ───────────────────────────────────────────────────────────
   const resetScene = useCallback(() => {
     heldIdsRef.current = []
-    lastOuttakeTimeRef.current    = Number.NEGATIVE_INFINITY
-    lastLoaderDispenseRef.current = Number.NEGATIVE_INFINITY
+    lastOuttakeTimeRef.current      = Number.NEGATIVE_INFINITY
+    lastFrontOuttakeTimeRef.current = Number.NEGATIVE_INFINITY
+    lastLoaderDispenseRef.current   = Number.NEGATIVE_INFINITY
     parkZoneStuckUntilRef.current = 0
     prevRobotYForPZRef.current    = DEFAULT_ROBOT.y
     prevRobotXForPZRef.current    = DEFAULT_ROBOT.x
@@ -238,8 +358,9 @@ export function usePhysics(
 
     function up(e: KeyboardEvent) {
       const key = e.key === ' ' ? ' ' : e.key.toLowerCase()
-      // Reset outtake timer on X release so next press fires immediately.
+      // Reset outtake timers on key release so the next press fires immediately.
       if (key === 'x') lastOuttakeTimeRef.current = Number.NEGATIVE_INFINITY
+      if (key === 'c') lastFrontOuttakeTimeRef.current = Number.NEGATIVE_INFINITY
       if (keysRef.current.delete(key)) setHeldKeys(new Set(keysRef.current))
     }
 
@@ -317,7 +438,6 @@ export function usePhysics(
             newY = Math.max(-BOUND, Math.min(BOUND, res.y))
           }
         }
-        // Both center goals are solid for the robot even though upper allows ball under-passage.
         {
           const res = resolveRobotGoalOBB(newX, newY, newHdg, 0, 0, CG_UPPER_HALF_L, CG_UPPER_HALF_W, CG_UPPER_ROT)
           if (res) {
@@ -378,48 +498,53 @@ export function usePhysics(
       prevRobotYForPZRef.current = newY
       prevRobotXForPZRef.current = newX
 
-      // ── 1.5 Long-goal alignment assist (contact-based) ─────────────────────
-      // Activates ONLY when the robot's back face is physically touching a long
-      // goal's open end — not from a distance. When in contact, applies a strong
-      // heading correction AND a lateral position correction so the rear outtake
-      // mechanism lines up with the goal channel reliably.
+      // ── 1.5 Goal alignment assist (contact-based) ──────────────────────────
+      // Activates ONLY when the robot's back face is physically touching an open
+      // end — not from a distance. Applies heading correction AND lateral position
+      // correction so the rear outtake aligns with the channel.
+      //
+      // The heading threshold (HDG_THRESH) has been intentionally removed.
+      // Without it the correction always fires whenever contact is detected,
+      // regardless of how far off-angle the robot currently is. This prevents
+      // the common failure mode where the robot reaches the correct position but
+      // its angle is still too far from the target for the assist to engage.
       {
-        const CONTACT_MARGIN = 4.0   // inches — back face must be within this of open end
-        const HDG_RATE       = 360.0 // degrees/sec — decisive; corrects 40° in ~0.11 s
-        const HDG_THRESH     = 50.0  // max heading error to apply assist
-        const X_RATE         = 60.0  // inches/sec — lateral pull toward goal channel axis
+        const CONTACT_MARGIN = 6.0   // inches — back face must be within this of open end
+        const HDG_RATE       = 360.0 // degrees/sec — corrects 40° in ~0.11 s
+        const LAT_RATE       = 60.0  // inches/sec — lateral pull toward channel axis
         const backX = newX - ROBOT_HALF * cosH
         const backY = newY - ROBOT_HALF * sinH
+
+        // ── Long goals ──────────────────────────────────────────────────────
         for (const g of LONG_GOAL_PHYSICS) {
-          // Only assist when the robot's back is laterally near the goal channel.
           if (Math.abs(backX - g.cx) > g.hw + ROBOT_HALF + 3) continue
           const southEnd = g.cy - g.hh
           const northEnd = g.cy + g.hh
           let targetHdg: number | null = null
-          // Contact with south open end: back face is within CONTACT_MARGIN of south end.
           if (backY >= southEnd - CONTACT_MARGIN && backY <= southEnd + CONTACT_MARGIN) targetHdg = 270
-          // Contact with north open end: back face is within CONTACT_MARGIN of north end.
           if (backY >= northEnd - CONTACT_MARGIN && backY <= northEnd + CONTACT_MARGIN) targetHdg = 90
           if (targetHdg === null) continue
-          // Heading correction — strong rate, capped per frame.
           const rawDiff = ((targetHdg - newHdg) % 360 + 540) % 360 - 180
-          if (Math.abs(rawDiff) <= HDG_THRESH) {
-            newHdg += Math.sign(rawDiff) * Math.min(Math.abs(rawDiff), HDG_RATE * dt)
-          }
-          // Lateral position correction — pull robot center toward goal channel axis.
+          // Always correct — no HDG_THRESH so even large misalignments are resolved.
+          newHdg += Math.sign(rawDiff) * Math.min(Math.abs(rawDiff), HDG_RATE * dt)
           const xErr = g.cx - newX
           if (Math.abs(xErr) > 0.05) {
-            newX += Math.sign(xErr) * Math.min(Math.abs(xErr), X_RATE * dt)
+            newX += Math.sign(xErr) * Math.min(Math.abs(xErr), LAT_RATE * dt)
             newX  = Math.max(-BOUND, Math.min(BOUND, newX))
           }
         }
+
       }
 
       robotRef.current = { ...r, x: newX, y: newY, heading: newHdg }
 
       const rob = robotRef.current
 
-      // ── 2a. Sequential outtake (X key) — one block per 0.5 s ───────────
+      // ── 2a. Rear outtake (X key) — one block per 100 ms ────────────────
+      // Releases through the back of the robot. Can only score into:
+      //   • long goals
+      //   • upper center goal
+      // Will NOT score into the lower center goal.
       if (keys.has('x') && heldIdsRef.current.length > 0) {
         if (now - lastOuttakeTimeRef.current >= 100) {
           lastOuttakeTimeRef.current = now
@@ -427,9 +552,6 @@ export function usePhysics(
           const ob = blocksRef.current.find(bl => bl.id === id)
           if (ob) {
             // Rear outtake: spawn 2" behind the robot's back face.
-            // Uses rob.heading (which includes the alignment correction applied this frame).
-            // No boundary clamping here — the ball must always come from the rear of the
-            // robot only. The wall resolver handles any marginal out-of-bounds next frame.
             const OUTTAKE_BACK_LX = RHW + 2.0
             const outRad  = (rob.heading * Math.PI) / 180
             const outCosH = Math.cos(outRad)
@@ -438,85 +560,138 @@ export function usePhysics(
             const oy = rob.y - OUTTAKE_BACK_LX * outSinH
             ob.x = ox
             ob.y = oy
-            // If the outtake point lands inside the upper center goal, put block in its channel.
-            if (isInsideUpperCenterGoal(ox, oy)) {
+            ob.scatterAt = undefined  // clear any pending scatter from previous goal exit
+
+            // Upper center goal — rear outtake CAN score if robot is near center
+            // with back roughly facing either end (heading ≈ 45° or 225°).
+            const robDistU = Math.hypot(rob.x, rob.y)
+            const hdgDiff45  = Math.abs(((45  - rob.heading) % 360 + 540) % 360 - 180)
+            const hdgDiff225 = Math.abs(((225 - rob.heading) % 360 + 540) % 360 - 180)
+            if (robDistU <= CG_SCORE_RADIUS && (hdgDiff45 <= CG_SCORE_HDG || hdgDiff225 <= CG_SCORE_HDG)) {
               ob.state  = 'goal'
               ob.goalId = 'center-goal-upper'
-              // Project outtake position onto goal length axis, center on width axis.
-              const projL = ox * CG_COS + oy * CG_SIN
-              ob.x  = projL * CG_COS
-              ob.y  = projL * CG_SIN
-              ob.vx = 0; ob.vy = 0
-              // Carry backward outtake momentum along goal length axis.
-              const outVl = -(outCosH * CG_COS + outSinH * CG_SIN) * 18
-              ob.vx = outVl * CG_COS
-              ob.vy = outVl * CG_SIN
+              const { cosG, sinG, halfL } = CENTER_GOAL_UPPER
+              // Place block just inside the entry end; shoot it inward.
+              const sign = hdgDiff225 <= hdgDiff45 ? 1 : -1
+              ob.x  = sign * (halfL - BLOCK_RADIUS - 0.5) * cosG
+              ob.y  = sign * (halfL - BLOCK_RADIUS - 0.5) * sinG
+              ob.vx = -sign * 18 * cosG
+              ob.vy = -sign * 18 * sinG
+              cgChainPush(ob, blocksRef.current, halfL, cosG, sinG, now, false)
             }
-            // If the outtake point lands inside a long goal, put block into goal channel.
-            else {
-            const hitGoal = getGoalAtPoint(ox, oy)
-            if (hitGoal) {
-              ob.state = 'goal'
-              ob.goalId = hitGoal.id
-              // Center X on the goal channel; carry backward momentum as Y velocity.
-              ob.x = hitGoal.cx
-              ob.vx = 0
-              ob.vy = Math.abs(outSinH) > 0.1 ? -outSinH * 18 : 0
-
-              // ── Chain push ─────────────────────────────────────────────────
-              // Immediately shift all existing balls in this goal to make room for
-              // the new entry. The continuous collision resolution runs only 3
-              // iterations per frame and can't propagate forces through a packed
-              // stack fast enough, so the new ball gets pushed back out the entry
-              // end without this direct adjustment.
-              // We sort balls in the push direction and cascade positions so each
-              // ball is at least one diameter away from its southern neighbour.
-              // Any ball pushed past the far open end exits to field state.
-              if (Math.abs(ob.vy) > 0) {
-                const SPACING  = BLOCK_RADIUS * 2 + 0.2  // min gap between ball centres
-                const pushNorth = ob.vy > 0
-                const siblings  = blocksRef.current.filter(
-                  bl => bl.state === 'goal' && bl.goalId === hitGoal.id && bl.id !== ob.id
-                )
-                if (pushNorth) {
-                  // New ball entered from south — cascade existing balls northward.
-                  siblings.sort((a, b) => a.y - b.y)
-                  let floor = ob.y + SPACING
-                  for (const bl of siblings) {
-                    if (bl.y < floor) { bl.y = floor; if (bl.vy < ob.vy) bl.vy = ob.vy }
-                    floor = bl.y + SPACING
-                  }
-                } else {
-                  // New ball entered from north — cascade existing balls southward.
-                  siblings.sort((a, b) => b.y - a.y)
-                  let ceil = ob.y - SPACING
-                  for (const bl of siblings) {
-                    if (bl.y > ceil) { bl.y = ceil; if (bl.vy > ob.vy) bl.vy = ob.vy }
-                    ceil = bl.y - SPACING
-                  }
-                }
-                // Immediately exit any balls pushed past an open end.
-                for (const bl of siblings) {
-                  const d = bl.y - hitGoal.cy
-                  if (Math.abs(d) > hitGoal.hh) {
-                    bl.state  = 'field'
-                    bl.goalId = undefined
-                    const sign = d > 0 ? 1 : -1
-                    bl.y  = hitGoal.cy + sign * (hitGoal.hh + BLOCK_RADIUS + 0.1)
-                    bl.x  = hitGoal.cx
-                    bl.vy = sign * Math.max(Math.abs(bl.vy), 8)
-                    bl.vx = 0
-                  }
-                }
-              }
-              // ── End chain push ─────────────────────────────────────────────
-            } else {
+            // Lower center goal — rear outtake CANNOT score here; treat as a field release.
+            else if (isInsideLowerCenterGoal(ox, oy)) {
               ob.vx = -outCosH * 18
               ob.vy = -outSinH * 18
-              ob.state = 'field'
+              ob.state  = 'field'
               ob.goalId = undefined
             }
-            } // end else (not upper center goal)
+            // Long goals — rear outtake CAN score here.
+            else {
+              const hitGoal = getGoalAtPoint(ox, oy)
+              if (hitGoal) {
+                ob.state = 'goal'
+                ob.goalId = hitGoal.id
+                // Center X on the goal channel; carry backward momentum as Y velocity.
+                ob.x = hitGoal.cx
+                ob.vx = 0
+                ob.vy = Math.abs(outSinH) > 0.1 ? -outSinH * 18 : 0
+
+                // ── Chain push ─────────────────────────────────────────────────
+                if (Math.abs(ob.vy) > 0) {
+                  const SPACING  = BLOCK_RADIUS * 2 + 0.2
+                  const pushNorth = ob.vy > 0
+                  const siblings  = blocksRef.current.filter(
+                    bl => bl.state === 'goal' && bl.goalId === hitGoal.id && bl.id !== ob.id
+                  )
+                  if (pushNorth) {
+                    siblings.sort((a, b) => a.y - b.y)
+                    let floor = ob.y + SPACING
+                    for (const bl of siblings) {
+                      if (bl.y < floor) { bl.y = floor; if (bl.vy < ob.vy) bl.vy = ob.vy }
+                      floor = bl.y + SPACING
+                    }
+                  } else {
+                    siblings.sort((a, b) => b.y - a.y)
+                    let ceil = ob.y - SPACING
+                    for (const bl of siblings) {
+                      if (bl.y > ceil) { bl.y = ceil; if (bl.vy > ob.vy) bl.vy = ob.vy }
+                      ceil = bl.y - SPACING
+                    }
+                  }
+                  // Immediately exit any balls pushed past an open end — with scatter.
+                  for (const bl of siblings) {
+                    const d = bl.y - hitGoal.cy
+                    if (Math.abs(d) > hitGoal.hh) {
+                      bl.state  = 'field'
+                      bl.goalId = undefined
+                      const sign = d > 0 ? 1 : -1
+                      bl.y  = hitGoal.cy + sign * (hitGoal.hh + BLOCK_RADIUS + 0.1)
+                      bl.x  = hitGoal.cx
+                      bl.vy = sign * Math.max(Math.abs(bl.vy), 8)
+                      bl.vx = (Math.random() - 0.5) * SCATTER_LONG_V
+                    }
+                  }
+                }
+                // ── End chain push ─────────────────────────────────────────────
+              } else {
+                ob.vx = -outCosH * 18
+                ob.vy = -outSinH * 18
+                ob.state = 'field'
+                ob.goalId = undefined
+              }
+            }
+          }
+          heldIdsRef.current = heldIdsRef.current.slice(1)
+        }
+      }
+
+      // ── 2b. Front outtake (C key) — one block per 100 ms ───────────────
+      // Releases through the FRONT rake area of the robot. Can only score into:
+      //   • lower center goal
+      // Will NOT score into long goals or the upper center goal.
+      if (keys.has('c') && heldIdsRef.current.length > 0) {
+        if (now - lastFrontOuttakeTimeRef.current >= 100) {
+          lastFrontOuttakeTimeRef.current = now
+          const id = heldIdsRef.current[0]
+          const ob = blocksRef.current.find(bl => bl.id === id)
+          if (ob) {
+            // Front outtake: spawn 2" past the robot's front face.
+            const OUTTAKE_FRONT_LX = RHW + 2.0
+            const outRad  = (rob.heading * Math.PI) / 180
+            const outCosH = Math.cos(outRad)
+            const outSinH = Math.sin(outRad)
+            const fx = rob.x + OUTTAKE_FRONT_LX * outCosH
+            const fy = rob.y + OUTTAKE_FRONT_LX * outSinH
+            ob.x = fx
+            ob.y = fy
+            ob.scatterAt = undefined
+
+            // Lower center goal — front outtake CAN score if robot is near center
+            // with front roughly facing either end (heading ≈ 315° or 135°).
+            const robDistL = Math.hypot(rob.x, rob.y)
+            const hdgDiff315 = Math.abs(((315 - rob.heading) % 360 + 540) % 360 - 180)
+            const hdgDiff135 = Math.abs(((135 - rob.heading) % 360 + 540) % 360 - 180)
+            if (robDistL <= CG_SCORE_RADIUS && (hdgDiff315 <= CG_SCORE_HDG || hdgDiff135 <= CG_SCORE_HDG)) {
+              ob.state  = 'goal'
+              ob.goalId = 'center-goal-lower'
+              const { cosG, sinG, halfL } = CENTER_GOAL_LOWER
+              // Place block just inside the entry end; shoot it inward.
+              const sign = hdgDiff315 <= hdgDiff135 ? 1 : -1
+              ob.x  = sign * (halfL - BLOCK_RADIUS - 0.5) * cosG
+              ob.y  = sign * (halfL - BLOCK_RADIUS - 0.5) * sinG
+              ob.vx = -sign * 18 * cosG
+              ob.vy = -sign * 18 * sinG
+              cgChainPush(ob, blocksRef.current, halfL, cosG, sinG, now, true)
+            }
+            // Anywhere else (including long goals and upper center) — front outtake
+            // CANNOT score; release as a regular field ball.
+            else {
+              ob.vx = outCosH * 18
+              ob.vy = outSinH * 18
+              ob.state  = 'field'
+              ob.goalId = undefined
+            }
           }
           heldIdsRef.current = heldIdsRef.current.slice(1)
         }
@@ -544,17 +719,13 @@ export function usePhysics(
 
           if (inZoneX && inZoneY) {
             b.state = 'held'
+            b.scatterAt = undefined  // cancel any pending scatter when intaked
             heldIdsRef.current = [...heldIdsRef.current, b.id]
           }
         }
       }
 
-      // ── 2b. Loader dispense — one ball per 100 ms, same rate as outtake ───
-      // Iterates forward: lower-index balls dispense first.
-      // Red-side loaders have red at lower indices → 3 red out first, then 3 blue.
-      // Blue-side loaders have blue at lower indices (colors swapped by mirror) → 3 blue first, 3 red.
-      // The intake zone check is identical to regular pickup; the robot must
-      // face and position itself at the loader mouth to trigger dispensing.
+      // ── 2c. Loader dispense — one ball per 100 ms, same rate as outtake ───
       if (intakeActive && heldIdsRef.current.length < capacityRef.current) {
         if (now - lastLoaderDispenseRef.current >= 100) {
           for (let i = 0; i < blocksRef.current.length; i++) {
@@ -572,6 +743,7 @@ export function usePhysics(
 
             if (inZoneX && inZoneY) {
               b.state = 'held'
+              b.scatterAt = undefined
               heldIdsRef.current = [...heldIdsRef.current, b.id]
               lastLoaderDispenseRef.current = now
               break  // one ball per interval
@@ -613,8 +785,7 @@ export function usePhysics(
 
         // Inertial impulse: robot velocity change is felt as opposite kick on
         // held blocks, causing them to slosh backward on acceleration, forward
-        // on braking, and sideways on turns. Factor < 1 so it doesn't overpower
-        // the friction that settles them.
+        // on braking, and sideways on turns.
         const INERTIA = 0.55
         b.vx -= dvx * INERTIA
         b.vy -= dvy * INERTIA
@@ -661,6 +832,13 @@ export function usePhysics(
       for (const b of blocks) {
         if (b.state !== 'field') continue  // skip 'held', 'loader', 'goal'
 
+        // Apply pending scatter kick (delayed exit from lower center goal).
+        if (b.scatterAt != null && now >= b.scatterAt) {
+          b.vx += (Math.random() - 0.5) * SCATTER_LOWER_V
+          b.vy += (Math.random() - 0.5) * SCATTER_LOWER_V
+          b.scatterAt = undefined
+        }
+
         b.x += b.vx * dt
         b.y += b.vy * dt
 
@@ -678,51 +856,79 @@ export function usePhysics(
 
       // ── 4b-i. Upper center goal channel physics ──────────────────────────
       // Blocks inside the upper center goal move along the 45° diagonal axis.
-      // Width axis is locked to 0; exit through either end converts to field state.
+      // Width axis is locked to 0; exit through either end converts to field state
+      // with an immediate perpendicular scatter so balls fan out naturally.
       for (const b of blocks) {
         if (b.state !== 'goal' || b.goalId !== 'center-goal-upper') continue
-        const cg = CENTER_GOAL_UPPER
+        const { cx, cy, halfL, cosG, sinG } = CENTER_GOAL_UPPER
 
-        // Decompose block position/velocity into goal local frame
-        const dx = b.x - cg.cx, dy = b.y - cg.cy
-        let lx = dx * CG_COS + dy * CG_SIN    // along length axis
-        let vlx = b.vx * CG_COS + b.vy * CG_SIN
+        const dx = b.x - cx, dy = b.y - cy
+        let lx = dx * cosG + dy * sinG
+        let vlx = b.vx * cosG + b.vy * sinG
 
-        // Integrate and apply friction along length axis
         lx += vlx * dt
         const absVlx = Math.abs(vlx)
         if (absVlx > REST_SPEED) {
           const decel = Math.min(absVlx, FRICTION * dt)
           vlx = vlx > 0 ? vlx - decel : vlx + decel
-        } else {
-          vlx = 0
-        }
+        } else { vlx = 0 }
 
-        // Lock to goal axis in world space
-        b.x  = cg.cx + lx * CG_COS
-        b.y  = cg.cy + lx * CG_SIN
-        b.vx = vlx * CG_COS
-        b.vy = vlx * CG_SIN
+        b.x  = cx + lx * cosG; b.y  = cy + lx * sinG
+        b.vx = vlx * cosG;     b.vy = vlx * sinG
 
-        // Exit through open ends
-        if (Math.abs(lx) > cg.halfL) {
-          b.state  = 'field'
-          b.goalId = undefined
+        if (Math.abs(lx) > halfL) {
+          b.state = 'field'; b.goalId = undefined
           const sign = lx > 0 ? 1 : -1
-          const exitL = sign * (cg.halfL + BLOCK_RADIUS + 0.1)
-          b.x  = cg.cx + exitL * CG_COS
-          b.y  = cg.cy + exitL * CG_SIN
-          b.vx = sign * Math.max(Math.abs(vlx), 8) * CG_COS
-          b.vy = sign * Math.max(Math.abs(vlx), 8) * CG_SIN
+          const exitL = sign * (halfL + BLOCK_RADIUS + 0.1)
+          b.x  = cx + exitL * cosG; b.y  = cy + exitL * sinG
+          b.vx = sign * Math.max(Math.abs(vlx), 8) * cosG
+          b.vy = sign * Math.max(Math.abs(vlx), 8) * sinG
+          // Immediate scatter perpendicular to the goal axis.
+          const perpScatter = (Math.random() - 0.5) * SCATTER_CG_V
+          b.vx += perpScatter * (-sinG)
+          b.vy += perpScatter * cosG
+        }
+      }
+
+      // ── 4b-ii. Lower center goal channel physics ─────────────────────────
+      // Same structure as upper, but runs along the -45° diagonal axis.
+      // Exits get a delayed scatter so balls travel briefly in a straight line
+      // before spreading (lower goal is at floor level, not raised).
+      for (const b of blocks) {
+        if (b.state !== 'goal' || b.goalId !== 'center-goal-lower') continue
+        const { cosG, sinG, halfL } = CENTER_GOAL_LOWER
+
+        const lx = b.x * cosG + b.y * sinG
+        let vlx = b.vx * cosG + b.vy * sinG
+
+        let newLx = lx + vlx * dt
+        const absVlx = Math.abs(vlx)
+        if (absVlx > REST_SPEED) {
+          const decel = Math.min(absVlx, FRICTION * dt)
+          vlx = vlx > 0 ? vlx - decel : vlx + decel
+        } else { vlx = 0 }
+
+        b.x = newLx * cosG; b.y = newLx * sinG
+        b.vx = vlx * cosG;  b.vy = vlx * sinG
+
+        if (Math.abs(newLx) > halfL) {
+          b.state = 'field'; b.goalId = undefined
+          const sign = newLx > 0 ? 1 : -1
+          b.x  = sign * (halfL + BLOCK_RADIUS + 0.1) * cosG
+          b.y  = sign * (halfL + BLOCK_RADIUS + 0.1) * sinG
+          b.vx = sign * Math.max(Math.abs(vlx), 8) * cosG
+          b.vy = sign * Math.max(Math.abs(vlx), 8) * sinG
+          // Delayed scatter — ball travels straight briefly before spreading.
+          b.scatterAt = now + SCATTER_DELAY_MS
         }
       }
 
       // ── 4b. Long goal-channel physics ('goal' blocks) ────────────────────
       // Each block in a long goal moves only along the goal's Y axis. X is
       // clamped to the channel walls. If the block drifts past either open end
-      // (|y| > halfH) it converts back to a normal field block.
+      // (|y| > halfH) it converts back to a normal field block with immediate scatter.
       for (const b of blocks) {
-        if (b.state !== 'goal' || b.goalId === 'center-goal-upper') continue
+        if (b.state !== 'goal' || b.goalId?.startsWith('center-goal')) continue
         const g = LONG_GOAL_PHYSICS.find(g => g.id === b.goalId)
         if (!g) { b.state = 'field'; b.goalId = undefined; continue }
 
@@ -740,33 +946,26 @@ export function usePhysics(
           b.vy = 0
         }
 
-        // Exit through open ends: convert to field state and eject just past the end.
+        // Exit through open ends: convert to field state with immediate scatter.
         const distFromCenter = b.y - g.cy
         if (Math.abs(distFromCenter) > g.hh) {
           b.state = 'field'
           b.goalId = undefined
-          // Place block just outside the end with a small separating velocity.
           const sign = distFromCenter > 0 ? 1 : -1
-          b.y = g.cy + sign * (g.hh + BLOCK_RADIUS + 0.1)
+          b.y  = g.cy + sign * (g.hh + BLOCK_RADIUS + 0.1)
           b.vy = sign * Math.max(Math.abs(b.vy), 8)
+          // Immediate lateral scatter — goal is raised so ball fans out on landing.
+          b.vx = (Math.random() - 0.5) * SCATTER_LONG_V
         }
       }
 
       // ── 5. Collision resolution ('field' blocks only, multiple iterations) ─
-      // 'loader' blocks are immune — they cannot be pushed by the robot or other
-      // blocks, and they are not wall-clamped (they sit just past the clamp limit).
       for (let iter = 0; iter < ITERS; iter++) {
         for (const b of blocks) {
           if (b.state === 'field') resolveBlockWall(b)
         }
         for (const b of blocks) {
           if (b.state === 'field') resolveRobotBlock(rob.x, rob.y, rob.heading, robotVx, robotVy, b)
-        }
-        // Lower center goal is a solid ball obstacle (upper allows under-passage — no ball collision).
-        for (const b of blocks) {
-          if (b.state === 'field') {
-            resolveBlockGoalOBB(b, 0, 0, CG_LOWER_HALF_L, CG_LOWER_HALF_W, CG_LOWER_ROT)
-          }
         }
         for (let i = 0; i < blocks.length - 1; i++) {
           for (let j = i + 1; j < blocks.length; j++) {
@@ -780,11 +979,6 @@ export function usePhysics(
       }
 
       // ── 5b. Stacked-block dispersal ──────────────────────────────────────────
-      // resolveBlockBlock fixes positional overlap, but when stacked blocks share
-      // nearly the same velocity (e.g. pushed together by the robot or outtaked at
-      // the same point), they continue traveling as a clump even after being pushed
-      // apart positionally. This pass detects deeply-overlapping moving pairs and
-      // adds a minimum relative separating speed so they fan out immediately.
       for (let i = 0; i < blocks.length - 1; i++) {
         const a = blocks[i]
         if (a.state !== 'field') continue
@@ -795,10 +989,7 @@ export function usePhysics(
           const ddx = b.x - a.x
           const ddy = b.y - a.y
           const dd2 = ddx * ddx + ddy * ddy
-          // Only act when blocks are significantly overlapping (more than half-radius).
           if (dd2 >= BLOCK_RADIUS * BLOCK_RADIUS) continue
-
-          // Skip stationary pairs — compression at rest is fine.
           if (Math.hypot(a.vx, a.vy) + Math.hypot(b.vx, b.vy) < REST_SPEED * 2) continue
 
           const dd = Math.sqrt(dd2)
@@ -813,7 +1004,6 @@ export function usePhysics(
             sny = ddy / dd
           }
 
-          // Ensure at least this much relative separating speed along the axis.
           const MIN_SEP = 15  // in/s
           const rvn = (b.vx - a.vx) * snx + (b.vy - a.vy) * sny
           if (rvn < MIN_SEP) {
@@ -825,31 +1015,28 @@ export function usePhysics(
       }
 
       // ── 5c. Long goal-channel block-block collisions ─────────────────────
-      // 'goal' blocks within the same long goal collide with each other along Y only.
-      // After resolution X is re-locked to the channel center and exit is re-checked.
-      // (Upper center goal blocks are skipped here — they have their own axis.)
+      // 'goal' blocks within the same long goal collide along Y; re-locked to X.
+      // Immediate scatter applied on any collision-induced exit.
       for (let iter = 0; iter < ITERS; iter++) {
         for (let i = 0; i < blocks.length - 1; i++) {
           const a = blocks[i]
-          if (a.state !== 'goal' || a.goalId === 'center-goal-upper') continue
+          if (a.state !== 'goal' || a.goalId?.startsWith('center-goal')) continue
           for (let j = i + 1; j < blocks.length; j++) {
             const b = blocks[j]
             if (b.state !== 'goal' || b.goalId !== a.goalId) continue
             resolveBlockBlock(a, b)
-            // Re-lock X and zero out X velocity after generic resolution.
             const g = LONG_GOAL_PHYSICS.find(g => g.id === a.goalId)
             if (g) {
               a.x = g.cx; a.vx = 0
               b.x = g.cx; b.vx = 0
-              // Re-check exits for both blocks after push.
               for (const bl of [a, b]) {
                 const dist = bl.y - g.cy
                 if (Math.abs(dist) > g.hh) {
-                  bl.state = 'field'
-                  bl.goalId = undefined
+                  bl.state = 'field'; bl.goalId = undefined
                   const sign = dist > 0 ? 1 : -1
                   bl.y = g.cy + sign * (g.hh + BLOCK_RADIUS + 0.1)
                   bl.vy = sign * Math.max(Math.abs(bl.vy), 8)
+                  bl.vx = (Math.random() - 0.5) * SCATTER_LONG_V
                 }
               }
             }
@@ -857,26 +1044,55 @@ export function usePhysics(
         }
       }
 
+      // ── 5c-ii. Center goal block-block collisions ─────────────────────────
+      // For each center goal, resolve block-block overlaps generically then
+      // re-lock all blocks back to their diagonal axis and check for exits.
+      // Scatter type (immediate vs delayed) follows the goal type.
+      for (let iter = 0; iter < ITERS; iter++) {
+        for (const cg of [CENTER_GOAL_UPPER, CENTER_GOAL_LOWER] as const) {
+          const { id, halfL, cosG, sinG } = cg
+          const isLower = id === 'center-goal-lower'
+          for (let i = 0; i < blocks.length - 1; i++) {
+            const a = blocks[i]
+            if (a.state !== 'goal' || a.goalId !== id) continue
+            for (let j = i + 1; j < blocks.length; j++) {
+              const b = blocks[j]
+              if (b.state !== 'goal' || b.goalId !== id) continue
+              resolveBlockBlock(a, b)
+              cgReLock(a, halfL, cosG, sinG, now, isLower)
+              cgReLock(b, halfL, cosG, sinG, now, isLower)
+            }
+          }
+        }
+      }
+
       // ── 5d. Robot pushing long-goal-channel blocks through open ends ──────
-      // The robot can reach goal-state blocks at the open ends and push them
-      // along the channel or knock them out. Only the Y component of the robot's
-      // push force carries through; X is immediately re-locked afterward.
-      // (Center-goal-upper blocks are excluded — they have their own axis logic.)
+      // Immediate scatter on any robot-induced exit.
       for (const b of blocks) {
-        if (b.state !== 'goal' || b.goalId === 'center-goal-upper') continue
+        if (b.state !== 'goal' || b.goalId?.startsWith('center-goal')) continue
         const g = LONG_GOAL_PHYSICS.find(g => g.id === b.goalId)
         if (!g) continue
         resolveRobotBlock(rob.x, rob.y, rob.heading, robotVx, robotVy, b)
-        // Re-lock X regardless of where the generic resolver put it.
         b.x = g.cx; b.vx = 0
-        // Exit check after robot push.
         const dist = b.y - g.cy
         if (Math.abs(dist) > g.hh) {
-          b.state = 'field'
-          b.goalId = undefined
+          b.state = 'field'; b.goalId = undefined
           const sign = dist > 0 ? 1 : -1
           b.y = g.cy + sign * (g.hh + BLOCK_RADIUS + 0.1)
           b.vy = sign * Math.max(Math.abs(b.vy), 8)
+          b.vx = (Math.random() - 0.5) * SCATTER_LONG_V
+        }
+      }
+
+      // ── 5d-ii. Robot pushing center goal channel blocks ───────────────────
+      // Scatter type follows the goal type (delayed for lower).
+      for (const cg of [CENTER_GOAL_UPPER, CENTER_GOAL_LOWER] as const) {
+        const { id, halfL, cosG, sinG } = cg
+        const isLower = id === 'center-goal-lower'
+        for (const b of blocks) {
+          if (b.state !== 'goal' || b.goalId !== id) continue
+          resolveRobotBlock(rob.x, rob.y, rob.heading, robotVx, robotVy, b)
+          cgReLock(b, halfL, cosG, sinG, now, isLower)
         }
       }
 
