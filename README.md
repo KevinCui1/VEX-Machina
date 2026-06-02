@@ -12,7 +12,7 @@ A browser-based top-down simulator for the VEX V5 Robotics Competition 2025-2026
 
 ## Live Demo
 
-[vex-machina.vercel.app](https://vex-machina.vercel.app) *(replace with your actual URL)*
+[vex-machina.vercel.app](https://vex-machina.vercel.app)
 
 ---
 
@@ -41,29 +41,12 @@ Built to let drivers practice Push Back routes and game mechanics without needin
 
 ## Architecture
 
-```
-src/
-  components/
-    SplashScreen.tsx      canvas intro animation
-  simulator/
-    field/
-      types.ts            field element type definitions
-      geometry.ts         coordinate conversion, SVG viewbox helpers
-      pushBackField.ts    Push Back field data (goals, loaders, park zones, tape)
-    physics/
-      physicsTypes.ts     block state types
-      usePhysics.ts       main rAF game loop: robot movement, block physics, intake/outtake
-      collision.ts        circle-circle, OBB-circle, and wall collision resolvers
-      PhysicsBlockLayer   SVG block renderer, mode-aware draw ordering
-      testLayout.ts       starting block positions
-    robot/
-      robotTypes.ts       robot state, movement constants
-      RobotLayer.tsx      SVG robot renderer with rake and held block display
-    FieldView.tsx         full SVG field renderer (floor, goals, loaders, park zones)
-    FieldSimulator.tsx    top-level UI: panels, settings sliders, status chips
-```
+The simulator is split into four main systems under `src/simulator/`:
 
-The physics loop runs in a single `requestAnimationFrame` callback. Robot movement and block state are updated together each frame, then a snapshot is written to React state for rendering. The SVG renderer draws field elements in a fixed layer order so blocks appear above or below goals depending on whether they are scored.
+- **field**: static field data and coordinate geometry for the Push Back layout
+- **physics**: `usePhysics` runs a single `requestAnimationFrame` loop handling robot movement, block collisions, intake, and outtake
+- **robot**: robot state types and SVG renderer
+- **FieldView**: SVG renderer that layers the floor, goals, blocks, and robot in the correct draw order
 
 ---
 
@@ -75,7 +58,6 @@ The physics loop runs in a single `requestAnimationFrame` callback. Robot moveme
 - Center Goal blocks are constrained to their diagonal axis. Upper goal blocks scatter immediately on exit; lower goal blocks travel briefly before spreading.
 - Intake captures any field block inside the rake zone in front of the robot, up to the configured capacity.
 - Loader blocks dispense one at a time when the robot is positioned at the loader mouth with intake active.
-- This is an unofficial educational simulator. The physics approximates real Push Back behavior but is not an exact model.
 
 ---
 
